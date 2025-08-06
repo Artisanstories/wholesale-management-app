@@ -1,15 +1,20 @@
-import { shopify } from "./shopify-config.js";
+import shopify from "./shopify-config.js";
 
 export default function applyAuthMiddleware(app) {
   app.get("/auth", async (req, res) => {
+    const shop = req.query.shop;
+
+    if (!shop) {
+      return res.status(400).send("Missing shop parameter");
+    }
+
     const authRoute = await shopify.auth.begin({
-      shop: req.query.shop,
+      shop,
       callbackPath: "/auth/callback",
-      isOnline: true,
-      rawRequest: req,
-      rawResponse: res,
+      isOnline: false,
     });
-    return res.redirect(authRoute);
+
+    res.redirect(authRoute);
   });
 
   app.get("/auth/callback", async (req, res) => {
@@ -19,19 +24,10 @@ export default function applyAuthMiddleware(app) {
         rawResponse: res,
       });
 
-      await shopify.webhooks.register({
-        session,
-      });
-
-      await import("./script-injector.js").then((mod) =>
-        mod.default(session)
-      );
-
-      const host = req.query.host;
-      res.redirect(`/app?shop=${session.shop}&host=${host}`);
-    } catch (e) {
-      console.error(e);
-      res.status(500).send(e.message);
+      res.redirect(`/?shop=${session.shop}`);
+    } catch (error) {
+      console.error("Auth error:", error);
+      res.status(500).send("Authentication failed");
     }
   });
 }
