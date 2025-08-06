@@ -1,6 +1,10 @@
 import pkg from "@shopify/shopify-api";
+import nodeAdapter from "@shopify/shopify-api-adapter-node";
 
-// Use in-memory session storage for development
+const { shopifyApi, LATEST_API_VERSION } = pkg;
+
+shopifyApi.adapters.set(nodeAdapter);
+
 class CustomMemoryStorage {
   constructor() {
     this.sessions = new Map();
@@ -25,8 +29,6 @@ class CustomMemoryStorage {
     );
   }
 }
-
-const { shopifyApi, LATEST_API_VERSION } = pkg;
 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
