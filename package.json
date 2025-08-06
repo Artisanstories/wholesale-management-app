@@ -76,7 +76,7 @@
     "dotenv": "^16.3.1",
     "cors": "^2.8.5",
     "@shopify/shopify-api": "^7.4.0",
-    "@shopify/shopify-api-adapters-node": "^1.0.2"
+    "@shopify/shopify-api-adapter-node": "^1.0.2"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.2.8",
