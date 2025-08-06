@@ -45,7 +45,6 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "connect-pg-simple": "^10.0.0",
-    "cors": "^2.8.5",
     "date-fns": "^3.6.0",
     "drizzle-orm": "^0.39.1",
     "drizzle-zod": "^0.7.0",
@@ -74,7 +73,9 @@
     "ws": "^8.18.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "@shopify/shopify-api": "^7.4.0"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.2.8",
