@@ -1,7 +1,7 @@
 // shopify-config.js
 
 import pkg from "@shopify/shopify-api";
-import nodeAdapter from "@shopify/shopify-api-adapter-node";
+import nodeAdapter from "@shopify/shopify-api-adapters-node";
 
 const { shopifyApi, LATEST_API_VERSION } = pkg;
 
