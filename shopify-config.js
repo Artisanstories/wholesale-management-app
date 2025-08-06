@@ -1,4 +1,6 @@
-import { shopifyApi, LATEST_API_VERSION, MemorySessionStorage } from "@shopify/shopify-api";
+import pkg from "@shopify/shopify-api";
+const { shopifyApi, LATEST_API_VERSION, MemorySessionStorage } = pkg;
+
 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
