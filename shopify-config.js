@@ -1,11 +1,11 @@
 // shopify-config.js
 
-// 👉 Side-effect import: registers the Node runtime adapter automatically
+// Registers Shopify's Node adapter (required for v7+ runtime)
 import "@shopify/shopify-api/adapters/node";
 
 import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
 
-// Accept HOST with or without protocol (works with either value in Render)
+// Accept HOST with or without protocol
 function normalizeHost(host) {
   if (!host) throw new Error("HOST env var is missing");
   return host.replace(/^https?:\/\//, "");
@@ -20,5 +20,5 @@ export const shopify = shopifyApi({
     .filter(Boolean),
   hostName: normalizeHost(process.env.HOST),
   apiVersion: LATEST_API_VERSION,
-  isEmbeddedApp: false, // keep simple for now
+  isEmbeddedApp: false, // keep simple; can flip later
 });
