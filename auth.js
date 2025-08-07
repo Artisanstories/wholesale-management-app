@@ -1,34 +1,24 @@
-// auth.js
+// server.js
 
+import express from "express";
+import dotenv from "dotenv";
+import cors from "cors";
 import { shopify } from "./shopify-config.js";
+import applyAuthMiddleware from "./auth.js";
 
-export default function applyAuthMiddleware(app) {
-  app.get("/auth", async (req, res) => {
-    const shop = req.query.shop;
-    if (!shop) {
-      return res.status(400).send("Missing shop parameter.");
-    }
+dotenv.config();
+const app = express();
 
-    const authRoute = await shopify.auth.begin({
-      shop,
-      callbackPath: "/auth/callback",
-      isOnline: false,
-    });
+app.use(cors());
+app.use(express.json());
 
-    res.redirect(authRoute);
-  });
+applyAuthMiddleware(app);
 
-  app.get("/auth/callback", async (req, res) => {
-    try {
-      const callback = await shopify.auth.callback({
-        rawRequest: req,
-        rawResponse: res,
-      });
+app.get("/api/me", async (req, res) => {
+  res.send({ success: true, message: "Shopify wholesale app running ✅" });
+});
 
-      res.redirect(`/?shop=${callback.session.shop}`);
-    } catch (err) {
-      console.error(err);
-      res.status(500).send("Auth callback failed");
-    }
-  });
-}
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
