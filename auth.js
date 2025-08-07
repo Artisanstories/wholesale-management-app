@@ -1,10 +1,13 @@
 // auth.js
+
 import { shopify } from "./shopify-config.js";
 
 export default function applyAuthMiddleware(app) {
   app.get("/auth", async (req, res) => {
     const shop = req.query.shop;
-    if (!shop) return res.status(400).send("Missing shop parameter");
+    if (!shop) {
+      return res.status(400).send("Missing shop parameter.");
+    }
 
     const authRoute = await shopify.auth.begin({
       shop,
@@ -17,16 +20,15 @@ export default function applyAuthMiddleware(app) {
 
   app.get("/auth/callback", async (req, res) => {
     try {
-      const session = await shopify.auth.callback({
+      const callback = await shopify.auth.callback({
         rawRequest: req,
         rawResponse: res,
       });
 
-      console.log("App installed on:", session.shop);
-      res.redirect(`/?shop=${session.shop}`);
-    } catch (error) {
-      console.error("Auth error:", error);
-      res.status(500).send("Authentication failed");
+      res.redirect(`/?shop=${callback.session.shop}`);
+    } catch (err) {
+      console.error(err);
+      res.status(500).send("Auth callback failed");
     }
   });
 }
