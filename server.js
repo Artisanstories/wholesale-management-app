@@ -12,14 +12,14 @@ import applyAuthMiddleware from "./auth.js";
 dotenv.config();
 const app = express();
 
-// ESM __dirname
+// ESM dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Render proxy so secure cookies work
+// Required so Render’s proxy allows SameSite=None cookies
 app.set("trust proxy", 1);
 
-// Force HTTPS + canonical host to avoid lost OAuth cookies
+// Force https + canonical host (prevents OAuth cookie loss)
 const expectedHost = (process.env.HOST || process.env.APP_URL || "").replace(/^https?:\/\//, "");
 app.use((req, res, next) => {
   if (!expectedHost) return next();
@@ -30,48 +30,47 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON & CORS
+// Shopify embed CSP
+app.use((_req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "frame-ancestors https://admin.shopify.com https://*.myshopify.com;"
+  );
+  next();
+});
+
 app.use(cors());
 app.use(express.json());
 
-// ---------- AUTH ----------
+// OAuth routes
 applyAuthMiddleware(app);
 
-// ---------- EMBEDDED APP (serve with API key injection) ----------
-app.get("/app", (req, res) => {
-  const htmlPath = path.join(__dirname, "public", "embedded.html");
-  fs.readFile(htmlPath, "utf8", (err, html) => {
+// Static assets (built client)
+const clientDist = path.join(__dirname, "client", "dist");
+app.use("/assets", express.static(path.join(clientDist, "assets")));
+app.use("/favicon.ico", express.static(path.join(clientDist, "favicon.ico")));
+
+// Embedded UI entry: serve client index.html and inject API key
+function sendEmbeddedHTML(req, res) {
+  const filePath = path.join(clientDist, "index.html");
+  fs.readFile(filePath, "utf8", (err, html) => {
     if (err) {
-      console.error("[/app] missing embedded.html:", err?.message);
-      return res.status(500).send("Missing embedded.html");
+      console.error("[embedded] missing build:", err?.message);
+      return res.status(500).send("Client build not found. Did you run `npm run build`?");
     }
-    // inject API key
     const injected = html.replace(/%SHOPIFY_API_KEY%/g, String(process.env.SHOPIFY_API_KEY || ""));
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    // stop any caching of the embedded UI
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
-    return res.send(injected);
+    res.send(injected);
   });
-});
+}
 
-// Root always redirects to embedded UI, preserving shop/host
-app.get("/", (req, res) => {
-  const { shop, host } = req.query || {};
-  const to = `/app${shop || host ? `?${new URLSearchParams({ ...(shop && { shop }), ...(host && { host }) }).toString()}` : ""}`;
-  return res.redirect(to);
-});
+app.get("/embedded", sendEmbeddedHTML);
+app.get("/embedded/*", sendEmbeddedHTML);
 
 // Health check
 app.get("/api/me", (_req, res) => {
-  res.json({ success: true, message: "Shopify wholesale app running ✅" });
+  res.send({ success: true, message: "Shopify wholesale app running ✅" });
 });
-
-// After routes, expose static assets (images, css, etc.)
-app.use(express.static(path.join(__dirname, "public"), { maxAge: 0 }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`[startup] Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`[startup] Server running on port ${PORT}`));
