@@ -1,12 +1,10 @@
-import shopify from "./shopify-config.js";
+// auth.js
+import { shopify } from "./shopify-config.js";
 
-export function applyAuthMiddleware(app) {
+export default function applyAuthMiddleware(app) {
   app.get("/auth", async (req, res) => {
     const shop = req.query.shop;
-
-    if (!shop) {
-      return res.status(400).send("Missing shop parameter");
-    }
+    if (!shop) return res.status(400).send("Missing shop parameter");
 
     const authRoute = await shopify.auth.begin({
       shop,
@@ -24,6 +22,7 @@ export function applyAuthMiddleware(app) {
         rawResponse: res,
       });
 
+      console.log("App installed on:", session.shop);
       res.redirect(`/?shop=${session.shop}`);
     } catch (error) {
       console.error("Auth error:", error);
