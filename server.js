@@ -1,8 +1,9 @@
+// server.js
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import shopify from "./shopify-config.js";
-import { applyAuthMiddleware } from "./auth.js"; // <-- FIXED
+import { shopify } from "./shopify-config.js";
+import applyAuthMiddleware from "./auth.js";
 import addScriptTag from "./script-injector.js";
 
 dotenv.config();
@@ -14,10 +15,25 @@ app.use(express.static("public"));
 
 applyAuthMiddleware(app);
 
-app.get("/api/me", async (req, res) => {
+// Optional: Inject script tag after auth
+app.get("/inject-script", async (req, res) => {
+  const shop = req.query.shop;
+  if (!shop) return res.status(400).send("Missing shop parameter");
+
+  try {
+    await addScriptTag(shop);
+    res.send("Script tag added successfully");
+  } catch (err) {
+    console.error("Script injection failed:", err);
+    res.status(500).send("Failed to inject script");
+  }
+});
+
+app.get("/api/me", (req, res) => {
   res.send({ success: true, message: "Shopify wholesale app running ✅" });
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server started on port", process.env.PORT || 3000);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
