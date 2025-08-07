@@ -1,17 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html>
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wholesale App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wholesale Dashboard</title>
     <link rel="stylesheet" href="https://unpkg.com/@shopify/polaris@12.7.0/build/esm/styles.css" />
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- The server replaces %SHOPIFY_API_KEY% before sending -->
     <script>
-      // Injected by server (we’ll wire this later)
-      window.__SHOPIFY_API_KEY__ = "%SHOPIFY_API_KEY%";
+      window.__APP_CONFIG__ = {
+        SHOP: new URLSearchParams(location.search).get("shop") || "",
+        API_KEY: "%SHOPIFY_API_KEY%"
+      };
     </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
