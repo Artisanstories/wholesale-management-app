@@ -1,25 +1,35 @@
-// server.js
+// auth.js
 
-import express from "express";
-import dotenv from "dotenv";
-import cors from "cors";
 import { shopify } from "./shopify-config.js";
-import applyAuthMiddleware from "./auth.js";
-import addScriptTag from "./script-injector.js";
 
-dotenv.config();
-const app = express();
+export function applyAuthMiddleware(app) {
+  app.get("/auth", async (req, res) => {
+    const shop = req.query.shop;
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static("public"));
+    if (!shop) {
+      return res.status(400).send("Missing shop parameter");
+    }
 
-applyAuthMiddleware(app);
+    const authRoute = await shopify.auth.begin({
+      shop,
+      callbackPath: "/auth/callback",
+      isOnline: false,
+    });
 
-app.get("/api/me", async (req, res) => {
-  res.send({ success: true, message: "Shopify wholesale app running ✅" });
-});
+    res.redirect(authRoute);
+  });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server started on port", process.env.PORT || 3000);
-});
+  app.get("/auth/callback", async (req, res) => {
+    try {
+      const session = await shopify.auth.callback({
+        rawRequest: req,
+        rawResponse: res,
+      });
+
+      res.redirect(`/?shop=${session.shop}`);
+    } catch (error) {
+      console.error("Auth error:", error);
+      res.status(500).send("Authentication failed");
+    }
+  });
+}
