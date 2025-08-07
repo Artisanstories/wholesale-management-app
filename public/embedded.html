@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Wholesale App (Embedded)</title>
+    <style>
+      html,body{height:100%} body{margin:0;background:#0b1220;color:#e6ebff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+      .wrap{max-width:860px;margin:6vh auto;padding:24px;background:#11172a;border:1px solid #253055;border-radius:16px}
+      h1{margin:0 0 12px} .muted{opacity:.85}
+      .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
+      a.btn,button.btn{cursor:pointer;display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid #2c3a66;background:#0d1833;color:#e6ebff;text-decoration:none}
+      a.btn:hover,button.btn:hover{background:#0f1b39}
+      code{background:#0d1833;border:1px solid #243158;border-radius:8px;padding:2px 6px}
+      .ok{color:#66ffa6;font-weight:600}
+    </style>
+    <!-- App Bridge runtime from Shopify CDN -->
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Wholesale App <span class="ok">Embedded</span> ✅</h1>
+      <p class="muted">
+        Shop: <code id="shop">—</code><br/>
+        Host: <code id="host">—</code>
+      </p>
+      <div class="row">
+        <button class="btn" id="toastBtn">Show Toast</button>
+        <button class="btn" id="toProducts">Go to Products</button>
+        <button class="btn" id="toAdminApps">Open Admin Apps</button>
+      </div>
+      <p class="muted" style="margin-top:18px">
+        This is a minimal embedded shell using App Bridge. We can plug in a React + Polaris UI next.
+      </p>
+    </div>
+
+    <script>
+      (function () {
+        const params = new URLSearchParams(location.search);
+        const shop = params.get("shop");
+        const host = params.get("host"); // base64-encoded host from Shopify
+
+        document.getElementById("shop").textContent = shop || "(unknown)";
+        document.getElementById("host").textContent = host || "(none)";
+
+        if (!shop || !host) {
+          document.body.insertAdjacentHTML("beforeend",
+            "<p style='color:#ff9d66;text-align:center'>Missing shop/host params. Launch this page via /auth flow.</p>"
+          );
+          return;
+        }
+
+        // Initialize App Bridge
+        const app = window.shopify.createApp({
+          apiKey: "%SHOPIFY_API_KEY%",
+          host: host, // base64-encoded host from query param
+          forceRedirect: true
+        });
+
+        // TitleBar
+        const { TitleBar, Toast, Redirect } = window.shopify.actions;
+        TitleBar.create(app, { title: "Wholesale Dashboard" });
+
+        // Toast
+        document.getElementById("toastBtn").addEventListener("click", () => {
+          const toast = Toast.create(app, { message: "Hello from Wholesale App 👋" });
+          toast.dispatch(Toast.Action.SHOW);
+        });
+
+        // Redirects
+        document.getElementById("toProducts").addEventListener("click", () => {
+          Redirect.create(app).dispatch(
+            Redirect.Action.ADMIN_SECTION,
+            { name: Redirect.ResourceType.Product }
+          );
+        });
+        document.getElementById("toAdminApps").addEventListener("click", () => {
+          Redirect.create(app).dispatch(Redirect.Action.ADMIN_PATH, "/apps");
+        });
+      })();
+    </script>
+  </body>
+</html>
