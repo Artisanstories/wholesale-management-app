@@ -1,7 +1,6 @@
 // auth.js
 import { shopify } from "./shopify-config.js";
 
-// simple validator: must end with .myshopify.com
 function isValidShopDomain(shop) {
   return typeof shop === "string" && /\.myshopify\.com$/i.test(shop);
 }
@@ -10,15 +9,19 @@ export default function applyAuthMiddleware(app) {
   app.get("/auth", async (req, res) => {
     try {
       const shop = req.query.shop;
-
-      if (!shop) {
-        return res.status(400).send("Missing ?shop=your-store.myshopify.com");
-      }
+      if (!shop) return res.status(400).send("Missing ?shop=");
       if (!isValidShopDomain(shop)) {
-        return res
-          .status(400)
-          .send("Invalid shop domain. Use your real store like mystore.myshopify.com");
+        return res.status(400).send("Invalid shop domain. Use mystore.myshopify.com");
       }
+
+      // Log what we're using for quick diagnosis (no secrets)
+      console.log("AUTH BEGIN →", {
+        shop,
+        hostEnv: process.env.HOST,
+        hostUsed: shopify.config.hostName,
+        scopes: shopify.config.scopes,
+        isEmbeddedApp: shopify.config.isEmbeddedApp,
+      });
 
       const authRoute = await shopify.auth.begin({
         shop,
@@ -28,7 +31,7 @@ export default function applyAuthMiddleware(app) {
 
       return res.redirect(authRoute);
     } catch (err) {
-      console.error("Error in /auth:", err);
+      console.error("ERROR /auth:", err?.message, err);
       return res.status(500).send("Auth start failed");
     }
   });
@@ -39,11 +42,10 @@ export default function applyAuthMiddleware(app) {
         rawRequest: req,
         rawResponse: res,
       });
-
-      // success — go back to your app
+      console.log("AUTH CALLBACK OK for", callback.session.shop);
       return res.redirect(`/?shop=${callback.session.shop}`);
     } catch (err) {
-      console.error("Error in /auth/callback:", err);
+      console.error("ERROR /auth/callback:", err?.message, err);
       return res.status(500).send("Authentication failed");
     }
   });
