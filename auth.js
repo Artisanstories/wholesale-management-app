@@ -24,7 +24,6 @@ export default function applyAuthMiddleware(app) {
         rawResponse: res,
       });
 
-      // If you need the session later, you can read callback.session
       res.redirect(`/?shop=${callback.session.shop}`);
     } catch (err) {
       console.error("Auth callback failed:", err);
