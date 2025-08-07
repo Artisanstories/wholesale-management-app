@@ -2,10 +2,13 @@
   "name": "wholesale-management-app",
   "version": "1.0.0",
   "type": "module",
+  {
   "scripts": {
     "start": "node server.js",
-    "build:client": "vite build --config client/vite.config.ts"
-  },
+    "build:client": "vite build --root client --config client/vite.config.ts"
+  }
+}
+
   "dependencies": {
     "@shopify/shopify-api": "^7.7.0",
     "@shopify/polaris": "^12.7.0",
