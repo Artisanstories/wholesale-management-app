@@ -1,6 +1,4 @@
-// auth.js
-
-import { shopify } from "./shopify-config.js";
+import shopify from "./shopify-config.js";
 
 export function applyAuthMiddleware(app) {
   app.get("/auth", async (req, res) => {
