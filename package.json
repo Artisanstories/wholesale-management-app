@@ -3,12 +3,18 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
     "start": "node server.js"
   },
   "dependencies": {
-    "@shopify/shopify-api": "^7.4.0",
+    "express": "^4.21.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "express": "^4.21.2"
+    "@shopify/shopify-api": "^7.4.0",
+    "@shopify/shopify-api-adapter-node": "^1.4.4"
+  },
+  "devDependencies": {
+    "vite": "^5.4.19"
   }
 }
