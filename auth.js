@@ -22,19 +22,21 @@ export default function applyAuthMiddleware(app) {
         isEmbeddedApp: shopify.config.isEmbeddedApp,
       });
 
-      const authRoute = await shopify.auth.begin({
+      // ✅ Pass Express req/res to Shopify (required)
+      const redirectUrl = await shopify.auth.begin({
         shop,
         callbackPath: "/auth/callback",
         isOnline: false,
+        rawRequest: req,
+        rawResponse: res,
       });
 
-      return res.redirect(authRoute);
+      // In some versions, begin() already handles the redirect when rawResponse is provided.
+      // But to be safe, redirect if a URL is returned.
+      if (redirectUrl) return res.redirect(redirectUrl);
+      return; // already handled
     } catch (err) {
-      console.error("ERROR /auth:", {
-        message: err?.message,
-        name: err?.name,
-        stack: err?.stack,
-      });
+      console.error("ERROR /auth:", { message: err?.message, stack: err?.stack });
       return res.status(500).send(`Auth start failed: ${err?.message || "unknown error"}`);
     }
   });
@@ -45,15 +47,14 @@ export default function applyAuthMiddleware(app) {
         rawRequest: req,
         rawResponse: res,
       });
+
       console.log("AUTH CALLBACK OK for", callback.session.shop);
       return res.redirect(`/?shop=${callback.session.shop}`);
     } catch (err) {
-      console.error("ERROR /auth/callback:", {
-        message: err?.message,
-        name: err?.name,
-        stack: err?.stack,
-      });
-      return res.status(500).send(`Authentication failed: ${err?.message || "unknown error"}`);
+      console.error("ERROR /auth/callback:", { message: err?.message, stack: err?.stack });
+      return res
+        .status(500)
+        .send(`Authentication failed: ${err?.message || "unknown error"}`);
     }
   });
 }
