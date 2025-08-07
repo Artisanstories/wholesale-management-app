@@ -1,5 +1,4 @@
 // auth.js
-
 import { shopify } from "./shopify-config.js";
 
 export default function applyAuthMiddleware(app) {
@@ -25,10 +24,11 @@ export default function applyAuthMiddleware(app) {
         rawResponse: res,
       });
 
+      // If you need the session later, you can read callback.session
       res.redirect(`/?shop=${callback.session.shop}`);
     } catch (err) {
-      console.error(err);
-      res.status(500).send("Auth callback failed");
+      console.error("Auth callback failed:", err);
+      res.status(500).send("Authentication failed");
     }
   });
 }
