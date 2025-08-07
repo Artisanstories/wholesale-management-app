@@ -1,8 +1,12 @@
 // shopify-config.js
 
-import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
+import pkg from "@shopify/shopify-api";
+import nodeAdapter from "@shopify/shopify-api-adapter-node";
 
-// Custom in-memory session storage
+const { shopifyApi, LATEST_API_VERSION } = pkg;
+
+shopifyApi.adapters.set(nodeAdapter);
+
 class CustomMemoryStorage {
   constructor() {
     this.sessions = new Map();
@@ -28,15 +32,12 @@ class CustomMemoryStorage {
   }
 }
 
-// Create Shopify API instance
-const shopify = shopifyApi({
+export const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
-  scopes: process.env.SCOPES?.split(",") || [],
+  scopes: process.env.SCOPES.split(","),
   hostName: process.env.HOST.replace(/^https?:\/\//, ""),
   isEmbeddedApp: true,
   apiVersion: LATEST_API_VERSION,
   sessionStorage: new CustomMemoryStorage(),
 });
-
-export { shopify };
