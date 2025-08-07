@@ -1,3 +1,4 @@
+<!-- public/embedded.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -5,93 +6,100 @@
   <title>Wholesale Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- App Bridge must load from Shopify CDN in embedded apps -->
-  <script type="module" src="https://cdn.shopify.com/shopifycloud/app-bridge-utilities/v3/index.js"></script>
-  <script type="module" src="https://cdn.shopify.com/shopifycloud/app-bridge/v3/app-bridge.min.js"></script>
+  <!-- Polaris (CDN, no build) -->
+  <link rel="stylesheet" href="https://unpkg.com/@shopify/polaris@12.7.0/build/esm/styles.css" />
 
-  <!-- Polaris via CDN (simple to start; you can switch to React build later) -->
-  <link rel="stylesheet" href="https://unpkg.com/@shopify/polaris@12.8.0/build/esm/styles.css" />
   <style>
-    body { background: #0e1114; color: #e6e6e6; }
-    .container { max-width: 1100px; margin: 24px auto; padding: 16px; }
-    .card { background: #12161a; border: 1px solid #1f2328; border-radius: 12px; padding: 16px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 16px; }
-    .pill { background:#1b4b2e; color:#b6ffd0; border-radius:999px; padding:2px 10px; font-size:12px; margin-left:8px; }
-    button.primary { background:#008060; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer }
-    button.secondary { background:#1a1f24; color:#cfd5db; border:1px solid #2a3036; border-radius:8px; padding:8px 12px; cursor:pointer }
-    .actions { display:flex; gap:10px; margin-top:12px; }
-    .muted { color:#98a1ab; font-size:14px }
-    .kvs { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    body { background:#0b0d13; color:#fff; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    .Page { max-width: 1080px; margin: 32px auto; padding: 0 16px; }
+    .Card { background:#111523; border:1px solid #1c2236; border-radius:12px; padding:20px; }
+    .Grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:16px; margin-top:16px; }
+    .Badge { font-size:12px; padding:4px 8px; border-radius:999px; background:#0b3b2e; color:#19ffa2; margin-left:8px; }
+    .Button { background:#2a61ff; color:#fff; border:0; border-radius:8px; padding:10px 14px; cursor:pointer; }
+    .Button.secondary { background:#222a42; }
+    .Mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .Row { display:flex; gap:10px; flex-wrap:wrap; }
+    .Key { color:#9fb3ff; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="card">
-      <h1 style="display:flex;align-items:center;gap:8px;">
-        Wholesale Dashboard
-        <span class="pill">embedded</span>
+  <main class="Page">
+    <div class="Card">
+      <h1 style="font-size:28px; margin:0 0 12px;">
+        Wholesale Dashboard <span class="Badge">embedded</span>
       </h1>
-      <p class="muted" id="shopLine">Shop:</p>
-      <div class="actions">
-        <button class="primary" id="checkApiBtn">Check API</button>
-        <button class="secondary" id="openAdminBtn">Open Shopify Admin</button>
+      <div style="opacity:.8; margin-bottom:16px;">Shop: <span id="shop" class="Mono">loading…</span></div>
+
+      <div class="Row" style="margin-bottom:16px;">
+        <button class="Button" id="checkApi">Check API</button>
+        <button class="Button secondary" id="openAdmin">Open Shopify Admin</button>
+      </div>
+
+      <div class="Grid">
+        <div class="Card">
+          <div style="opacity:.7; margin-bottom:6px;">Install status</div>
+          <div id="installStatus" class="Mono">Waiting…</div>
+        </div>
+        <div class="Card">
+          <div style="opacity:.7; margin-bottom:6px;">Scopes</div>
+          <div class="Mono" id="scopes">read_products, write_products, read_customers, write_customers</div>
+        </div>
+        <div class="Card">
+          <div style="opacity:.7; margin-bottom:6px;">API Key (injected)</div>
+          <div class="Mono"><span class="Key" id="apiKey">%SHOPIFY_API_KEY%</span></div>
+        </div>
       </div>
     </div>
+  </main>
 
-    <div class="row">
-      <div class="card">
-        <h3>Install status</h3>
-        <div class="muted" id="installStatus">Waiting…</div>
-      </div>
-      <div class="card">
-        <h3>Scopes</h3>
-        <div class="muted kvs" id="scopes">read_products, write_products, read_customers, write_customers</div>
-      </div>
-      <div class="card">
-        <h3>API Key (injected)</h3>
-        <div class="muted kvs" id="apiKey">%SHOPIFY_API_KEY%</div>
-      </div>
-    </div>
-  </div>
+  <!-- App Bridge (vanilla UMD) -->
+  <script src="https://unpkg.com/@shopify/app-bridge@3.7.14/umd/index.js"></script>
+  <script>
+    // --- helpers ---
+    const qp = new URLSearchParams(window.location.search);
+    const shop = qp.get('shop');
+    const host = qp.get('host');
+    document.getElementById('shop').textContent = shop || '(missing shop)';
 
-  <script type="module">
-    import * as AppBridge from "https://cdn.shopify.com/shopifycloud/app-bridge/v3/app-bridge.min.js";
-    import { getShopOrigin } from "https://cdn.shopify.com/shopifycloud/app-bridge-utilities/v3/index.js";
+    // Render injects this value in server.js
+    const apiKey = document.getElementById('apiKey').textContent.trim();
 
-    // pulled from server.js injection
-    const API_KEY = document.getElementById("apiKey").textContent.trim();
+    // App Bridge config
+    if (!apiKey || !host || !shop) {
+      document.getElementById('installStatus').textContent = 'Missing apiKey/host/shop';
+    }
 
-    // Shopify provides shop & host in the query string
-    const params = new URLSearchParams(window.location.search);
-    const shop = params.get("shop") || getShopOrigin();
-    const host = params.get("host"); // base64 admin host – required by App Bridge v3
+    const AppBridge = window['app-bridge'];
+    let app;
+    try {
+      app = AppBridge.default.createApp({
+        apiKey,
+        host, // base64 host from Shopify
+        forceRedirect: true
+      });
+      document.getElementById('installStatus').textContent = 'Installed';
+    } catch (e) {
+      document.getElementById('installStatus').textContent = 'App Bridge failed';
+      console.error('[app-bridge]', e);
+    }
 
-    // Update UI
-    document.getElementById("shopLine").textContent = `Shop: ${shop}`;
-    document.getElementById("installStatus").textContent = "Installed ✅";
-
-    // Initialize App Bridge
-    const app = AppBridge.default.createApp({
-      apiKey: API_KEY,
-      host,         // MUST come from Shopify (querystring)
-      forceRedirect: true,
-    });
-
-    // Wire buttons
-    document.getElementById("checkApiBtn").addEventListener("click", async () => {
+    // Buttons
+    document.getElementById('checkApi').addEventListener('click', async () => {
       try {
-        const r = await fetch("/api/me", { credentials: "include" });
+        const r = await fetch('/api/me', { credentials: 'include' });
         const j = await r.json();
-        alert(j?.message || "OK");
+        alert('API says: ' + JSON.stringify(j));
       } catch (e) {
-        alert("API check failed");
+        alert('Request failed: ' + e?.message);
       }
     });
 
-    document.getElementById("openAdminBtn").addEventListener("click", () => {
-      AppBridge.actions.Navigation.Navigation.create(app).dispatch(
-        AppBridge.actions.Navigation.Action.ADMIN_PATH, "/"
-      );
+    document.getElementById('openAdmin').addEventListener('click', () => {
+      if (!app) return;
+      const actions = AppBridge.actions;
+      const Redirect = actions.Redirect;
+      const redirect = Redirect.create(app);
+      redirect.dispatch(Redirect.Action.ADMIN_PATH, '/');
     });
   </script>
 </body>
