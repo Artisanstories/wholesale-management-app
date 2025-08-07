@@ -1,6 +1,12 @@
 // shopify-config.js
+
 import pkg from "@shopify/shopify-api";
+import nodeAdapter from "@shopify/shopify-api/adapters/node.js";
+
 const { shopifyApi, LATEST_API_VERSION } = pkg;
+
+// Set the correct runtime adapter
+pkg.shopifyApi.adapters.set(nodeAdapter);
 
 class CustomMemoryStorage {
   constructor() {
