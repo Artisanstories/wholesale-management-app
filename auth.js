@@ -9,12 +9,11 @@ export default function applyAuthMiddleware(app) {
   app.get("/auth", async (req, res) => {
     try {
       const shop = req.query.shop;
-      if (!shop) return res.status(400).send("Missing ?shop=");
+      if (!shop) return res.status(400).send("Missing ?shop=your-store.myshopify.com");
       if (!isValidShopDomain(shop)) {
         return res.status(400).send("Invalid shop domain. Use mystore.myshopify.com");
       }
 
-      // Log what we're using for quick diagnosis (no secrets)
       console.log("AUTH BEGIN →", {
         shop,
         hostEnv: process.env.HOST,
@@ -31,8 +30,12 @@ export default function applyAuthMiddleware(app) {
 
       return res.redirect(authRoute);
     } catch (err) {
-      console.error("ERROR /auth:", err?.message, err);
-      return res.status(500).send("Auth start failed");
+      console.error("ERROR /auth:", {
+        message: err?.message,
+        name: err?.name,
+        stack: err?.stack,
+      });
+      return res.status(500).send(`Auth start failed: ${err?.message || "unknown error"}`);
     }
   });
 
@@ -45,8 +48,12 @@ export default function applyAuthMiddleware(app) {
       console.log("AUTH CALLBACK OK for", callback.session.shop);
       return res.redirect(`/?shop=${callback.session.shop}`);
     } catch (err) {
-      console.error("ERROR /auth/callback:", err?.message, err);
-      return res.status(500).send("Authentication failed");
+      console.error("ERROR /auth/callback:", {
+        message: err?.message,
+        name: err?.name,
+        stack: err?.stack,
+      });
+      return res.status(500).send(`Authentication failed: ${err?.message || "unknown error"}`);
     }
   });
 }
