@@ -5,14 +5,12 @@ import dotenv from "dotenv";
 import cors from "cors";
 import { shopify } from "./shopify-config.js";
 import { applyAuthMiddleware } from "./auth.js";
-import addScriptTag from "./script-injector.js";
 
 dotenv.config();
 const app = express();
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static("public"));
 
 applyAuthMiddleware(app);
 
