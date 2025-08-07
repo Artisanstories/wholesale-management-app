@@ -1,10 +1,8 @@
-// server.js
-
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import shopify from "./shopify-config.js";
-import applyAuthMiddleware from "./auth.js";
+import { applyAuthMiddleware } from "./auth.js"; // <-- FIXED
 import addScriptTag from "./script-injector.js";
 
 dotenv.config();
