@@ -3,80 +3,124 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Wholesale App (Embedded)</title>
+    <title>Wholesale Dashboard</title>
+
+    <!-- Polaris CSS (CDN) -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@shopify/polaris@12.7.0/build/esm/styles.css"
+    />
+
     <style>
       html,body{height:100%} body{margin:0;background:#0b1220;color:#e6ebff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-      .wrap{max-width:860px;margin:6vh auto;padding:24px;background:#11172a;border:1px solid #253055;border-radius:16px}
-      h1{margin:0 0 12px} .muted{opacity:.85}
-      .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
-      a.btn,button.btn{cursor:pointer;display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid #2c3a66;background:#0d1833;color:#e6ebff;text-decoration:none}
-      a.btn:hover,button.btn:hover{background:#0f1b39}
-      code{background:#0d1833;border:1px solid #243158;border-radius:8px;padding:2px 6px}
-      .ok{color:#66ffa6;font-weight:600}
+      .wrap{max-width:1100px;margin:4vh auto;padding:24px}
+      .card{background:#11172a;border:1px solid #253055;border-radius:16px;padding:20px;margin-bottom:18px}
+      .muted{opacity:.85} code{background:#0d1833;border:1px solid #243158;border-radius:8px;padding:2px 6px}
+      .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+      a.link,button.link{color:#bcd4ff;background:transparent;border:0;padding:0;cursor:pointer;text-decoration:underline}
     </style>
-    <!-- App Bridge runtime from Shopify CDN -->
+
+    <!-- App Bridge (CDN) -->
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+    <!-- Polaris JS (optional: simple components) -->
+    <script type="module">
+      // nothing needed here for Polaris CDN styles
+    </script>
   </head>
   <body>
     <div class="wrap">
-      <h1>Wholesale App <span class="ok">Embedded</span> ✅</h1>
-      <p class="muted">
-        Shop: <code id="shop">—</code><br/>
-        Host: <code id="host">—</code>
-      </p>
-      <div class="row">
-        <button class="btn" id="toastBtn">Show Toast</button>
-        <button class="btn" id="toProducts">Go to Products</button>
-        <button class="btn" id="toAdminApps">Open Admin Apps</button>
+      <div class="card">
+        <h1 style="margin:0 0 10px">Wholesale Dashboard</h1>
+        <div class="muted">
+          Shop: <code id="shop">—</code><br/>
+          Host: <code id="host">—</code>
+        </div>
       </div>
-      <p class="muted" style="margin-top:18px">
-        This is a minimal embedded shell using App Bridge. We can plug in a React + Polaris UI next.
-      </p>
+
+      <div class="grid">
+        <div class="card">
+          <h3 style="margin:0 0 8px">Quick actions</h3>
+          <p class="muted">Common admin shortcuts.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+            <button class="Polaris-Button" id="btnToast"><span class="Polaris-Button__Content">Show toast</span></button>
+            <button class="Polaris-Button" id="btnProducts"><span class="Polaris-Button__Content">Open Products</span></button>
+            <button class="Polaris-Button" id="btnCustomers"><span class="Polaris-Button__Content">Open Customers</span></button>
+            <button class="Polaris-Button" id="btnAdminApps"><span class="Polaris-Button__Content">Admin Apps</span></button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 8px">API</h3>
+          <p class="muted">Simple check to your backend.</p>
+          <a class="link" href="/api/me" target="_blank" rel="noreferrer">GET /api/me</a>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 8px">Navigation</h3>
+          <p class="muted">Where do you want to go?</p>
+          <ul style="margin:8px 0 0 18px">
+            <li><button class="link" id="navDiscounts">Discounts</button></li>
+            <li><button class="link" id="navOrders">Orders</button></li>
+            <li><button class="link" id="navProducts">Products</button></li>
+          </ul>
+        </div>
+      </div>
     </div>
 
     <script>
       (function () {
         const params = new URLSearchParams(location.search);
         const shop = params.get("shop");
-        const host = params.get("host"); // base64-encoded host from Shopify
+        const host = params.get("host"); // base64-encoded by Shopify
 
         document.getElementById("shop").textContent = shop || "(unknown)";
-        document.getElementById("host").textContent = host || "(none)";
+        document.getElementById("host").textContent = host || "(missing — open via OAuth)");
 
         if (!shop || !host) {
           document.body.insertAdjacentHTML("beforeend",
-            "<p style='color:#ff9d66;text-align:center'>Missing shop/host params. Launch this page via /auth flow.</p>"
+            "<p style='text-align:center;color:#ffb38a'>Open the app via the OAuth install flow so we have shop & host params.</p>"
           );
           return;
         }
 
-        // Initialize App Bridge
+        // App Bridge init
         const app = window.shopify.createApp({
-          apiKey: "%SHOPIFY_API_KEY%",
-          host: host, // base64-encoded host from query param
+          apiKey: "%SHOPIFY_API_KEY%",           // server injects this at /embedded
+          host: host,                            // base64 value from query
           forceRedirect: true
         });
 
-        // TitleBar
         const { TitleBar, Toast, Redirect } = window.shopify.actions;
         TitleBar.create(app, { title: "Wholesale Dashboard" });
 
         // Toast
-        document.getElementById("toastBtn").addEventListener("click", () => {
+        document.getElementById("btnToast").addEventListener("click", () => {
           const toast = Toast.create(app, { message: "Hello from Wholesale App 👋" });
           toast.dispatch(Toast.Action.SHOW);
         });
 
-        // Redirects
-        document.getElementById("toProducts").addEventListener("click", () => {
-          Redirect.create(app).dispatch(
-            Redirect.Action.ADMIN_SECTION,
-            { name: Redirect.ResourceType.Product }
-          );
-        });
-        document.getElementById("toAdminApps").addEventListener("click", () => {
-          Redirect.create(app).dispatch(Redirect.Action.ADMIN_PATH, "/apps");
-        });
+        // Quick redirects
+        const redir = Redirect.create(app);
+        document.getElementById("btnProducts").addEventListener("click", () =>
+          redir.dispatch(Redirect.Action.ADMIN_SECTION, { name: Redirect.ResourceType.Product })
+        );
+        document.getElementById("btnCustomers").addEventListener("click", () =>
+          redir.dispatch(Redirect.Action.ADMIN_SECTION, { name: Redirect.ResourceType.Customer })
+        );
+        document.getElementById("btnAdminApps").addEventListener("click", () =>
+          redir.dispatch(Redirect.Action.ADMIN_PATH, "/apps")
+        );
+
+        // Navigation examples
+        document.getElementById("navDiscounts").addEventListener("click", () =>
+          redir.dispatch(Redirect.Action.ADMIN_PATH, "/discounts")
+        );
+        document.getElementById("navOrders").addEventListener("click", () =>
+          redir.dispatch(Redirect.Action.ADMIN_SECTION, { name: Redirect.ResourceType.Order })
+        );
+        document.getElementById("navProducts").addEventListener("click", () =>
+          redir.dispatch(Redirect.Action.ADMIN_SECTION, { name: Redirect.ResourceType.Product })
+        );
       })();
     </script>
   </body>
