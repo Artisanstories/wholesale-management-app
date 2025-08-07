@@ -1,10 +1,47 @@
 import React from "react";
+import {Page, Card, BlockStack, Button, Text, InlineGrid} from "@shopify/polaris";
 
-export default function Dashboard() {
+const Dashboard: React.FC = () => {
+  const [status, setStatus] = React.useState("Waiting…");
+
+  const onCheck = async () => {
+    try {
+      const r = await fetch("/api/me", {credentials: "include"});
+      const j = await r.json();
+      setStatus(j?.message ?? "OK");
+    } catch (e: any) {
+      setStatus(e?.message ?? "Failed");
+    }
+  };
+
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">Wholesale Dashboard</h1>
-      <p>Welcome to your embedded Shopify app. This is your admin dashboard.</p>
-    </div>
+    <Page title="Wholesale Dashboard" subtitle="Embedded">
+      <BlockStack gap="400">
+        <InlineGrid columns={{xs: 1, md: 3}} gap="400">
+          <Card>
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">Install status</Text>
+              <Text as="p" variant="bodyMd" tone="success">{status}</Text>
+            </BlockStack>
+          </Card>
+          <Card>
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">Scopes</Text>
+              <Text as="p" variant="bodyMd">
+                read_products, write_products, read_customers, write_customers
+              </Text>
+            </BlockStack>
+          </Card>
+          <Card>
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">Actions</Text>
+              <Button onClick={onCheck}>Check API</Button>
+            </BlockStack>
+          </Card>
+        </InlineGrid>
+      </BlockStack>
+    </Page>
   );
-}
+};
+
+export default Dashboard;
