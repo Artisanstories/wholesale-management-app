@@ -1,11 +1,6 @@
 // shopify-config.js
 
-import pkg from "@shopify/shopify-api";
-import nodeAdapter from "@shopify/shopify-api-adapter-node";
-
-const { shopifyApi, LATEST_API_VERSION } = pkg;
-
-shopifyApi.adapters.set(nodeAdapter);
+import { shopifyApi, LATEST_API_VERSION, shopifyApiAdapter } from "@shopify/shopify-api";
 
 class CustomMemoryStorage {
   constructor() {
@@ -40,4 +35,5 @@ export const shopify = shopifyApi({
   isEmbeddedApp: true,
   apiVersion: LATEST_API_VERSION,
   sessionStorage: new CustomMemoryStorage(),
+  adapter: shopifyApiAdapter(), // ✅ Use this line for Node adapter
 });
