@@ -1,5 +1,4 @@
 // server.js
-
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
@@ -16,21 +15,23 @@ app.use(express.static("public"));
 
 applyAuthMiddleware(app);
 
-app.get("/inject-script", async (req, res) => {
-  const shop = req.query.shop;
-  if (!shop) return res.status(400).send("Missing shop parameter");
+// Health check
+app.get("/api/me", (req, res) => {
+  res.send({ success: true, message: "Shopify wholesale app running ✅" });
+});
 
+// Optional: manual script injection endpoint (requires a fresh session from /auth/callback flow)
+app.post("/api/inject-script", async (req, res) => {
   try {
-    await addScriptTag(shop);
-    res.send("Script tag added successfully");
+    // In a real app you'd look up the session from storage.
+    // For now, this endpoint is a placeholder to avoid confusion.
+    return res
+      .status(501)
+      .send("Script injection endpoint not wired to a session yet.");
   } catch (err) {
     console.error("Script injection failed:", err);
     res.status(500).send("Failed to inject script");
   }
-});
-
-app.get("/api/me", (req, res) => {
-  res.send({ success: true, message: "Shopify wholesale app running ✅" });
 });
 
 const PORT = process.env.PORT || 3000;
