@@ -1,46 +1,54 @@
 import React from "react";
-import {AppProvider, Frame, TopBar, Navigation} from "@shopify/polaris";
-import {HomeIcon, ProductsIcon, CustomersIcon} from "@shopify/polaris-icons";
-import Dashboard from "./pages/Dashboard";
+import {
+  AppProvider,
+  Page,
+  Layout,
+  Card,
+  BlockStack,
+  Text,
+  Button
+} from "@shopify/polaris";
+import TopNav from "./components/TopNav";
+import Home from "./components/Home";
 
-const App: React.FC = () => {
-  const [mobileNavActive, setMobileNavActive] = React.useState(false);
-  const toggleMobileNav = React.useCallback(
-    () => setMobileNavActive((m) => !m),
-    []
-  );
+declare global {
+  interface Window {
+    __APP_CONFIG__?: { SHOP: string; API_KEY: string };
+  }
+}
 
-  const topBarMarkup = (
-    <TopBar
-      showNavigationToggle
-      onNavigationToggle={toggleMobileNav}
-    />
-  );
-
-  const navMarkup = (
-    <Navigation location="/">
-      <Navigation.Section
-        items={[
-          {label: "Dashboard", icon: HomeIcon, url: "/"},
-          {label: "Products", icon: ProductsIcon, url: "/products"},
-          {label: "Customers", icon: CustomersIcon, url: "/customers"},
-        ]}
-      />
-    </Navigation>
-  );
+export default function App() {
+  const shop = window.__APP_CONFIG__?.SHOP || "";
+  const apiKey = window.__APP_CONFIG__?.API_KEY || "";
 
   return (
     <AppProvider i18n={{}}>
-      <Frame
-        topBar={topBarMarkup}
-        navigation={navMarkup}
-        showMobileNavigation={mobileNavActive}
-        onNavigationDismiss={toggleMobileNav}
-      >
-        <Dashboard />
-      </Frame>
+      <TopNav />
+      <Page title="Wholesale Dashboard" subtitle="embedded">
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text as="p">Shop: {shop || "(unknown)"}</Text>
+                <BlockStack inlineAlign="start" gap="200">
+                  <Button url={`/api/me`} target="_blank">Check API</Button>
+                  <Button
+                    url={`https://${shop}/admin`}
+                    target="_blank"
+                    variant="secondary"
+                  >
+                    Open Shopify Admin
+                  </Button>
+                </BlockStack>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          <Layout.Section>
+            <Home apiKey={apiKey} />
+          </Layout.Section>
+        </Layout>
+      </Page>
     </AppProvider>
   );
-};
-
-export default App;
+}
