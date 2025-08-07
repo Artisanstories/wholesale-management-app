@@ -30,7 +30,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Shopify embed CSP
+// Shopify embed CSP (keep it simple; expand later if needed)
 app.use((_req, res, next) => {
   res.setHeader(
     "Content-Security-Policy",
@@ -45,25 +45,38 @@ app.use(express.json());
 // OAuth routes
 applyAuthMiddleware(app);
 
-// Static assets (built client)
+// --- Static assets from built client ---
 const clientDist = path.join(__dirname, "client", "dist");
 app.use("/assets", express.static(path.join(clientDist, "assets")));
 app.use("/favicon.ico", express.static(path.join(clientDist, "favicon.ico")));
 
-// Embedded UI entry: serve client index.html and inject API key
-function sendEmbeddedHTML(req, res) {
+// Helper to serve embedded UI with API key injection (no cache)
+function sendEmbeddedHTML(_req, res) {
   const filePath = path.join(clientDist, "index.html");
   fs.readFile(filePath, "utf8", (err, html) => {
     if (err) {
       console.error("[embedded] missing build:", err?.message);
-      return res.status(500).send("Client build not found. Did you run `npm run build`?");
+      return res
+        .status(500)
+        .send("Client build not found. Did you run `npm run build:client`?");
     }
     const injected = html.replace(/%SHOPIFY_API_KEY%/g, String(process.env.SHOPIFY_API_KEY || ""));
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.send(injected);
   });
 }
 
+// Root -> embedded (preserve shop/host when present)
+app.get("/", (req, res) => {
+  const { shop, host } = req.query || {};
+  const search = new URLSearchParams({ ...(shop && { shop }), ...(host && { host }) }).toString();
+  res.redirect(`/embedded${search ? `?${search}` : ""}`);
+});
+
+// Embedded entry + nested routes
 app.get("/embedded", sendEmbeddedHTML);
 app.get("/embedded/*", sendEmbeddedHTML);
 
