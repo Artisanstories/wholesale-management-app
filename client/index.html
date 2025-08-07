@@ -8,15 +8,12 @@
   </head>
   <body>
     <div id="root"></div>
-
-    <!-- The server replaces %SHOPIFY_API_KEY% before sending -->
     <script>
       window.__APP_CONFIG__ = {
         SHOP: new URLSearchParams(location.search).get("shop") || "",
         API_KEY: "%SHOPIFY_API_KEY%"
       };
     </script>
-
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
