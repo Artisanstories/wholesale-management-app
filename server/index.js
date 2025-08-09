@@ -14,6 +14,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 
+/** 👇 IMPORTANT for HTTPS + Secure cookies behind Render’s proxy */
+app.set("trust proxy", 1);
+
 app.use(cors());
 app.use(cookieParser());
 app.use(express.json());
@@ -21,7 +24,7 @@ app.use(express.json());
 // OAuth
 app.use("/api", authRouter);
 
-// Example protected API route
+// Protected example
 app.get("/api/products/count", verifyRequest, async (req, res) => {
   try {
     const { shop, accessToken } = req.shopifySession;
@@ -34,14 +37,13 @@ app.get("/api/products/count", verifyRequest, async (req, res) => {
   }
 });
 
-// Serve Vite build (from /web/dist)
+// Serve client
 const clientDist = path.resolve(__dirname, "../web/dist");
 app.use("/assets", express.static(path.join(clientDist, "assets")));
 app.get("/app", (req, res) => {
   res.sendFile(path.join(clientDist, "index.html"));
 });
 app.get("/", (req, res) => {
-  // install page: redirect to /api/auth if shop is present
   const shop = req.query.shop;
   if (shop) return res.redirect(`/api/auth?shop=${encodeURIComponent(shop)}`);
   res.send("Provide ?shop=your-store.myshopify.com to install.");
