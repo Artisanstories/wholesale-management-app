@@ -68,3 +68,51 @@ app.get("/", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+// Preview products with computed wholesale + VAT
+app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
+  try {
+    const { shop, accessToken } = req.shopifySession;
+    const client = new shopify.clients.Rest({ session: { shop, accessToken } });
+
+    const limit = Number(req.query.limit || 25);
+    const discountPct = parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20");
+    const vatPct = parseFloat(process.env.VAT_RATE_PERCENT || "20");
+    const discount = discountPct / 100;
+    const vat = vatPct / 100;
+
+    // Get a small page of products with variants & prices
+    const result = await client.get({
+      path: "products",
+      query: { limit, fields: "id,title,variants" }
+    });
+
+    const items = (result?.body?.products || []).flatMap((p) => {
+      return (p.variants || []).map((v) => {
+        const retail = parseFloat(v.price);
+        const wholesale = +(retail * (1 - discount)).toFixed(2);
+        const retailIncVat = +(retail * (1 + vat)).toFixed(2);
+        const wholesaleIncVat = +(wholesale * (1 + vat)).toFixed(2);
+        return {
+          productId: p.id,
+          productTitle: p.title,
+          variantId: v.id,
+          variantTitle: v.title,
+          retail,
+          wholesale,
+          retailIncVat,
+          wholesaleIncVat
+        };
+      });
+    });
+
+    res.json({
+      discountPercent: discountPct,
+      vatPercent: vatPct,
+      currency: "GBP", // simple display hint; adjust later if needed
+      items
+    });
+  } catch (e) {
+    console.error("wholesale/preview error:", e);
+    res.status(500).json({ error: "Failed to load preview" });
+  }
+});
