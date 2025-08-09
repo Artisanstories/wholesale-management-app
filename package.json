@@ -4,8 +4,7 @@
   "workspaces": ["server", "web"],
   "scripts": {
     "build": "npm --workspace web run build && npm --workspace server run build",
-    "start": "npm --workspace server start",
-    "postinstall": "npm --workspace web ci && npm --workspace server ci"
+    "start": "npm --workspace server start"
   },
   "engines": { "node": "20.x" }
 }
