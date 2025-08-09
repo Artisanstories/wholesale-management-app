@@ -1,13 +1,6 @@
-import { Provider as AppBridgeProvider } from "@shopify/app-bridge-react";
-import { ReactNode, useMemo } from "react";
+import { ReactNode } from "react";
 
+/** Temporary pass-through until we wire App Bridge v4 */
 export default function TopBarProvider({ children }: { children: ReactNode }) {
-  const config = useMemo(() => {
-    const host =
-      new URLSearchParams(location.search).get("host") || window.__SHOPIFY_HOST;
-    const apiKey = import.meta.env.VITE_SHOPIFY_API_KEY as string;
-    return { host, apiKey, forceRedirect: true };
-  }, []);
-
-  return <AppBridgeProvider config={config}>{children}</AppBridgeProvider>;
+  return <>{children}</>;
 }
