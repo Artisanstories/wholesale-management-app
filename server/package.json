@@ -1,18 +1,11 @@
 {
-  "name": "server",
-  "type": "module",
-  "main": "index.js",
-  "engines": { "node": "20.x" },
+  "name": "shopify-wholesale-app",
+  "private": true,
+  "workspaces": ["server", "web"],
   "scripts": {
-    "build": "echo \"Nothing to build for server\"",
-    "start": "node index.js",
-    "ci": "npm install --no-audit --no-fund"
+    "build": "npm --workspace web run build && npm --workspace server run build",
+    "start": "npm --workspace server start",
+    "build:client": "npm --workspace web run build"
   },
-  "dependencies": {
-    "@shopify/shopify-api": "^7.4.0",
-    "cookie-parser": "^1.4.6",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2"
-  }
+  "engines": { "node": "20.x" }
 }
