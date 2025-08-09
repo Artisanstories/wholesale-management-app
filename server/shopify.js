@@ -1,13 +1,31 @@
-import "@shopify/shopify-api/adapters/node"; // required for Node
-import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
+// server/shopify.js
+import "@shopify/shopify-api/adapters/node";
+import { shopifyApi, LATEST_API_VERSION, MemorySessionStorage } from "@shopify/shopify-api";
 import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-postgresql";
 import dotenv from "dotenv";
 dotenv.config();
 
-// Postgres-backed session storage (auto-creates table on first use)
-const storage = new PostgreSQLSessionStorage(process.env.DATABASE_URL, {
-  sessionTableName: "shopify_sessions"
-});
+function makeDbUrl() {
+  let url = process.env.DATABASE_URL || "";
+  if (!url) return "";
+  // Ensure sslmode=require for Render Postgres
+  if (!/sslmode=/.test(url)) {
+    url += (url.includes("?") ? "&" : "?") + "sslmode=require";
+  }
+  return url;
+}
+
+const dbUrl = makeDbUrl();
+
+const storage = dbUrl
+  ? new PostgreSQLSessionStorage(dbUrl, { sessionTableName: "shopify_sessions" })
+  : new MemorySessionStorage();
+
+if (!dbUrl) {
+  console.warn(
+    "[sessions] DATABASE_URL not set — using MemorySessionStorage (sessions will reset on deploy)."
+  );
+}
 
 export const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
