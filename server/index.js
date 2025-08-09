@@ -14,17 +14,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 
-/** 👇 IMPORTANT for HTTPS + Secure cookies behind Render’s proxy */
+/** HTTPS + secure cookies behind Render’s proxy */
 app.set("trust proxy", 1);
 
 app.use(cors());
 app.use(cookieParser());
 app.use(express.json());
 
-// OAuth
+// OAuth routes
 app.use("/api", authRouter);
 
-// Protected example
+// Protected REST example
 app.get("/api/products/count", verifyRequest, async (req, res) => {
   try {
     const { shop, accessToken } = req.shopifySession;
@@ -34,6 +34,23 @@ app.get("/api/products/count", verifyRequest, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to fetch count" });
+  }
+});
+
+// Protected GraphQL proxy
+app.post("/api/graphql", verifyRequest, async (req, res) => {
+  try {
+    const { shop, accessToken } = req.shopifySession;
+    const client = new shopify.clients.Graphql({ session: { shop, accessToken } });
+
+    const result = await client.request({
+      data: req.body // { query, variables }
+    });
+
+    res.json(result.body);
+  } catch (e) {
+    console.error("GraphQL proxy error:", e);
+    res.status(500).json({ error: "GraphQL request failed" });
   }
 });
 
