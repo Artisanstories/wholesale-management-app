@@ -1,0 +1,23 @@
+{
+  "name": "web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "ci": "npm install --no-audit --no-fund"
+  },
+  "dependencies": {
+    "@shopify/app-bridge-react": "^4.1.0",
+    "@shopify/polaris": "^12.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.7",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  }
+}
