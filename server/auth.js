@@ -5,7 +5,8 @@ import { shopify } from "./shopify.js";
 const router = express.Router();
 router.use(cookieParser());
 
-// Start OAuth — let Shopify send the redirect (we pass rawResponse)
+// Start OAuth — Shopify writes the redirect via rawResponse.
+// Do not call res.redirect() after this.
 router.get("/auth", async (req, res) => {
   try {
     const { shop } = req.query;
@@ -16,36 +17,37 @@ router.get("/auth", async (req, res) => {
       callbackPath: "/api/auth/callback",
       isOnline: false,
       rawRequest: req,
-      rawResponse: res, // this writes the redirect
+      rawResponse: res,
     });
-
-    // IMPORTANT: do not write any more to res after this point
+    // IMPORTANT: no more writes to res here.
   } catch (e) {
     console.error("Auth begin error:", e);
-    if (!res.headersSent) {
-      res.status(500).send("Auth error");
-    }
+    if (!res.headersSent) res.status(500).send("Auth error");
   }
 });
 
-// OAuth callback — we handle final redirect after session is created
+// OAuth callback — create your session cookie and redirect once.
 router.get("/auth/callback", async (req, res) => {
   try {
     const { session } = await shopify.auth.callback({
       rawRequest: req,
-      rawResponse: res, // lets Shopify set its cookies if any
+      rawResponse: res,
     });
 
-    // Store a minimal session cookie for your API routes
-    res.cookie(process.env.SESSION_COOKIE_NAME || "app_session", JSON.stringify({
-      shop: session.shop,
-      accessToken: session.accessToken,
-    }), {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: true,
-      path: "/",
-    });
+    // Minimal session cookie for your API routes
+    res.cookie(
+      process.env.SESSION_COOKIE_NAME || "app_session",
+      JSON.stringify({
+        shop: session.shop,
+        accessToken: session.accessToken,
+      }),
+      {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none", // 👈 required in embedded apps (iframe)
+        path: "/",
+      }
+    );
 
     const host = req.query.host || "";
     if (!res.headersSent) {
@@ -55,9 +57,7 @@ router.get("/auth/callback", async (req, res) => {
     }
   } catch (e) {
     console.error("Auth callback error:", e);
-    if (!res.headersSent) {
-      res.status(500).send("Callback error");
-    }
+    if (!res.headersSent) res.status(500).send("Callback error");
   }
 });
 
