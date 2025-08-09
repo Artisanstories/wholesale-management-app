@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@shopify/shopify-api": "^7.4.0",
-    "@shopify/shopify-app-session-storage-postgresql": "^2.2.0",
+    "@shopify/shopify-app-session-storage-postgresql": "^1.1.2",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
