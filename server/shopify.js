@@ -1,11 +1,12 @@
-import "@shopify/shopify-api/adapters/node";
+import "@shopify/shopify-api/adapters/node"; // required for Node
 import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
 import { PostgreSQLSessionStorage } from "@shopify/shopify-app-session-storage-postgresql";
 import dotenv from "dotenv";
 dotenv.config();
 
+// Postgres-backed session storage (auto-creates table on first use)
 const storage = new PostgreSQLSessionStorage(process.env.DATABASE_URL, {
-  sessionTableName: "shopify_sessions" // optional, defaults to 'shopify_sessions'
+  sessionTableName: "shopify_sessions"
 });
 
 export const shopify = shopifyApi({
