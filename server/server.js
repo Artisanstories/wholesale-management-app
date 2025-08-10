@@ -10,44 +10,6 @@ const { initShopify } = require('./shopify-config');
 const customersRoute = require('./routes/customers');
 const authRouter = require('./auth');
 
-// --- helpers --------------------------------------------------------------
-function extractShop(req) {
-  // 1) explicit query ?shop=
-  const qShop = (req.query.shop || '').toString().trim();
-  if (qShop) return qShop;
-
-  // 2) header injected by authenticatedFetch
-  const hdr = (req.headers['x-shopify-shop-domain'] || '').toString().trim();
-  if (hdr) return hdr;
-
-  // 3) decode host (base64) -> "...myshopify.com/admin" OR admin.shopify.com/store/<shop>
-  const host = (req.query.host || '').toString().trim();
-  if (host) {
-    try {
-      const decoded = Buffer.from(host, 'base64').toString('utf8');
-
-      // e.g. "myshop.myshopify.com/admin"
-      const m1 = decoded.match(/([a-z0-9-]+\.myshopify\.com)/i);
-      if (m1) return m1[1];
-
-      // e.g. "https://admin.shopify.com/store/myshop/..."
-      const m2 = decoded.match(/\/store\/([^/?#]+)/i);
-      if (m2) return `${m2[1]}.myshopify.com`;
-    } catch {}
-  }
-
-  // 4) last resort: try Referer’s search params
-  const referer = (req.headers.referer || '').toString();
-  try {
-    const u = new URL(referer);
-    const refShop = u.searchParams.get('shop');
-    if (refShop) return refShop;
-  } catch {}
-
-  return '';
-}
-// -------------------------------------------------------------------------
-
 (async () => {
   const app = express();
 
@@ -78,24 +40,51 @@ function extractShop(req) {
   // ----- Auth routes -----
   app.use('/api/auth', authRouter);
 
-  // Ensure-auth used by the frontend on mount.
-  // If no session id, reply 401 with a *complete* reauth URL that includes ?shop=...
+  // Helper to extract shop from JWT or query
+  async function getShopFromReq(req) {
+    const auth = req.headers.authorization || '';
+    if (auth.startsWith('Bearer ')) {
+      try {
+        const payload = await shopify.utils.decodeSessionToken(auth.slice('Bearer '.length));
+        const dest = (payload.dest || '').toString();
+        return dest.replace(/^https?:\/\//, '');
+      } catch {
+        // fall through to query param
+      }
+    }
+    return (req.query.shop || '').toString();
+  }
+
+  // Ensure-auth used by the frontend on mount (JWT-based; no cookies required)
   app.get('/api/ensure-auth', async (req, res) => {
     try {
-      const sessionId = await shopify.session.getCurrentId({
-        isOnline: true,
-        rawRequest: req,
-        rawResponse: res,
-      });
+      const auth = req.headers.authorization || '';
+      const shop = await getShopFromReq(req);
 
-      if (!sessionId) {
-        const shop = extractShop(req);
+      if (!auth.startsWith('Bearer ')) {
         return res
           .status(401)
           .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
           .set(
             'X-Shopify-API-Request-Failure-Reauthorize-Url',
-            `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
+            `/api/auth/inline?shop=${encodeURIComponent(shop)}`
+          )
+          .send('Unauthorized');
+      }
+
+      // Decode JWT and load the online session bound to this user/shop
+      const payload = await shopify.utils.decodeSessionToken(auth.slice('Bearer '.length));
+      const jwtShop = (payload.dest || '').toString().replace(/^https?:\/\//, '');
+      const jwtSessionId = shopify.session.getJwtSessionId(jwtShop, payload.sub);
+      const session = await shopify.config.sessionStorage.loadSession(jwtSessionId);
+
+      if (!session) {
+        return res
+          .status(401)
+          .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+          .set(
+            'X-Shopify-API-Request-Failure-Reauthorize-Url',
+            `/api/auth/inline?shop=${encodeURIComponent(jwtShop || shop)}`
           )
           .send('Unauthorized');
       }
@@ -103,15 +92,7 @@ function extractShop(req) {
       return res.status(204).end();
     } catch (e) {
       console.error('ensure-auth error', e);
-      const shop = extractShop(req);
-      return res
-        .status(401)
-        .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-        .set(
-          'X-Shopify-API-Request-Failure-Reauthorize-Url',
-          `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
-        )
-        .send('Unauthorized');
+      return res.status(401).send('Unauthorized');
     }
   });
 
