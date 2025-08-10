@@ -1,16 +1,17 @@
+// server/routes/theme.js
 import express from "express";
 import { shopify } from "../shopify.js";
 
 const router = express.Router();
 
 /**
- * Injects the wholesale snippet into the store theme.
- * @param {Session} session - Shopify session object from OAuth.
+ * Injects the wholesale snippet into the main store theme.
+ * @param {Session} session
  */
 export async function injectWholesaleSnippet(session) {
   const admin = new shopify.api.clients.Rest({ session });
 
-  // 1️⃣ Create wholesale snippet content
+  // 1️⃣ Snippet code
   const snippetCode = `
 {% comment %}
   Wholesale Pricing Snippet
@@ -42,7 +43,7 @@ export async function injectWholesaleSnippet(session) {
 {% endif %}
 `;
 
-  // 2️⃣ Upload snippet to Shopify
+  // 2️⃣ Upload snippet file
   await admin.put({
     path: `assets`,
     data: {
@@ -54,7 +55,7 @@ export async function injectWholesaleSnippet(session) {
     type: "application/json"
   });
 
-  // 3️⃣ Get main theme ID
+  // 3️⃣ Get main theme
   const themesResp = await admin.get({ path: "themes" });
   const mainTheme = themesResp.body.themes.find(t => t.role === "main");
   if (!mainTheme) throw new Error("Main theme not found");
@@ -66,7 +67,7 @@ export async function injectWholesaleSnippet(session) {
   });
   let themeContent = themeLiquidResp.body.asset.value;
 
-  // 5️⃣ Inject snippet if not already present
+  // 5️⃣ Inject include if not present
   if (!themeContent.includes("{% include 'wholesale-pricing' %}")) {
     themeContent = themeContent.replace(
       "</body>",
@@ -84,11 +85,12 @@ export async function injectWholesaleSnippet(session) {
       type: "application/json"
     });
   }
+
+  console.log(`✅ Wholesale snippet injected for shop ${session.shop}`);
 }
 
 /**
- * API endpoint to manually trigger snippet injection (for testing).
- * Example: POST /api/theme/inject
+ * API endpoint to manually trigger snippet injection (for testing)
  */
 router.post("/inject", async (req, res) => {
   try {
