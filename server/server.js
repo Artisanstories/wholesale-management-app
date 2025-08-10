@@ -1,21 +1,21 @@
-// server/server.js
-require("@shopify/shopify-api/adapters/node"); // MUST be first
+require("@shopify/shopify-api/adapters/node");
 
 const express = require("express");
 const path = require("path");
-const { shopify } = require("./shopify-config");
 
 const customersRoute = require("./routes/customers");
 const themeRouter = require("./routes/theme.js").default || require("./routes/theme.js");
 const webhookRouter = require("./routes/webhooks.js").default || require("./routes/webhooks.js");
+const authRouter = require("./auth.js").default || require("./auth.js");
 
 const app = express();
 app.use(express.json());
 
-// API Routes
+// Routes
+app.use("/api", authRouter);              // /api/auth + /api/auth/callback
 app.use("/api/customers", customersRoute);
-app.use("/api/theme", themeRouter);       // Theme injection/testing
-app.use("/api/webhooks", webhookRouter);  // Webhooks (uninstall cleanup)
+app.use("/api/theme", themeRouter);
+app.use("/api/webhooks", webhookRouter);
 
 // Serve React build
 app.use(express.static(path.join(__dirname, "..", "web", "dist")));
