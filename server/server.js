@@ -6,8 +6,8 @@ require('dotenv').config();
 
 const { initShopify } = require('./shopify-config');
 const customersRoute = require('./routes/customers');
-const theme = require('./routes/theme');
-const webhooks = require('./routes/webhooks');
+const theme = require('./routes/theme');        // keep if you use it
+const webhooks = require('./routes/webhooks');  // keep if you use it
 const authRouter = require('./auth');
 
 const app = express();
@@ -17,15 +17,15 @@ app.use(express.json());
 function ensureShopifyReady(req, res, next) {
   const shopify = req.app.locals.shopify;
   if (!shopify) return res.status(503).json({ error: 'Shopify not initialized yet' });
-  req.shopify = shopify; // inject for downstream routes
+  req.shopify = shopify; // inject instance
   next();
 }
 
-// Routes
-app.use('/api', ensureShopifyReady, authRouter);            // /api/auth, /api/auth/callback
+// Routes (mounted at /api)
+app.use('/api', ensureShopifyReady, authRouter);                // /api/auth, /api/auth/callback
 app.use('/api/customers', ensureShopifyReady, customersRoute);
-app.use('/api/theme', ensureShopifyReady, theme.router);
-app.use('/api/webhooks', ensureShopifyReady, webhooks.router);
+if (theme?.router) app.use('/api/theme', ensureShopifyReady, theme.router);
+if (webhooks?.router) app.use('/api/webhooks', ensureShopifyReady, webhooks.router);
 
 // Serve the React app
 app.use(express.static(path.join(__dirname, '..', 'web', 'dist')));
