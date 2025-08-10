@@ -13,28 +13,27 @@ const authRouter = require('./auth');
 (async () => {
   const app = express();
 
-  // Render/ELB sits in front of us; this lets Shopify's secure cookies work.
+  // Render is behind a proxy; this is required for secure cookies to work
   app.set('trust proxy', 1);
 
   app.use(cookieParser());
   app.use(express.json());
 
-  // Health for quick checks
+  // Health check for Render (prevents 502 during deploy/start)
   app.get('/api/health', (_req, res) => res.status(200).send('ok'));
 
-  // Init Shopify SDK
   const shopify = await initShopify();
 
-  // expose the SDK on req for all routes
+  // expose SDK to routes
   app.use((req, _res, next) => {
     req.shopify = shopify;
     next();
   });
 
-  // --- Auth routes ---
+  // Auth
   app.use('/api/auth', authRouter);
 
-  // --- “Ensure auth” helper used by the frontend on mount ---
+  // Ensure-auth used by frontend on mount
   app.get('/api/ensure-auth', async (req, res) => {
     try {
       const sessionId = await shopify.session.getCurrentId({
@@ -42,15 +41,12 @@ const authRouter = require('./auth');
         rawRequest: req,
         rawResponse: res,
       });
-
       if (!sessionId) {
-        // The client will read these and call /api/auth/inline
         return res
           .status(401)
           .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
           .send('Unauthorized');
       }
-
       return res.status(204).end();
     } catch (e) {
       console.error('ensure-auth error', e);
@@ -58,16 +54,16 @@ const authRouter = require('./auth');
     }
   });
 
-  // --- API routes ---
+  // API routes
   app.use('/api/customers', customersRoute);
 
-  // --- Global error handler (prevents 502s) ---
+  // Global error handler (so Render doesn’t show 502)
   app.use((err, _req, res, _next) => {
     console.error('Unhandled error:', err);
     res.status(500).json({ error: 'Internal server error' });
   });
 
-  // --- Static app (Vite build) ---
+  // Static frontend
   const distDir = path.join(__dirname, '..', 'web', 'dist');
   app.use(express.static(distDir));
   app.get('*', (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
@@ -75,9 +71,9 @@ const authRouter = require('./auth');
   const PORT = process.env.PORT || 3000;
   const server = app.listen(PORT, () => console.log(`Server running on :${PORT}`));
 
-  // Slightly longer timeouts help behind a proxy and avoid sporadic 502s
-  server.keepAliveTimeout = 61_000;
-  server.headersTimeout = 65_000;
+  // A little breathing room for proxy keep-alives
+  server.keepAliveTimeout = 61000;
+  server.headersTimeout = 65000;
 })().catch((e) => {
   console.error('Failed to start server:', e);
   process.exit(1);
