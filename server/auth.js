@@ -1,13 +1,14 @@
+// server/auth.js
 import express from "express";
 import cookieParser from "cookie-parser";
 import { shopify } from "./shopify.js";
-import { injectWholesaleSnippet } from "./routes/theme.js"; // ✅ add this import
+import { injectWholesaleSnippet } from "./routes/theme.js"; 
+import { removeWholesaleSnippet } from "./routes/webhooks.js";
 
 const router = express.Router();
 router.use(cookieParser());
 
-// Start OAuth — Shopify writes the redirect via rawResponse.
-// Do not call res.redirect() after this.
+// Start OAuth
 router.get("/auth", async (req, res) => {
   try {
     const { shop } = req.query;
@@ -20,14 +21,13 @@ router.get("/auth", async (req, res) => {
       rawRequest: req,
       rawResponse: res
     });
-    // nothing else here
   } catch (e) {
     console.error("Auth begin error:", e);
     if (!res.headersSent) res.status(500).send("Auth error");
   }
 });
 
-// OAuth callback — create your light cookie for app API routes and redirect once.
+// OAuth callback
 router.get("/auth/callback", async (req, res) => {
   try {
     const { session } = await shopify.auth.callback({
@@ -43,7 +43,20 @@ router.get("/auth/callback", async (req, res) => {
       console.error(`❌ Failed to inject snippet for ${session.shop}`, injectionError);
     }
 
-    // A tiny cookie for your own API routes (Shopify's official session is in Postgres)
+    // ✅ Register uninstall webhook
+    try {
+      await shopify.webhooks.register({
+        session,
+        deliveryMethod: shopify.webhooks.DeliveryMethod.Http,
+        callbackUrl: "/api/webhooks/uninstalled",
+        topic: "APP_UNINSTALLED"
+      });
+      console.log(`✅ Uninstall webhook registered for shop: ${session.shop}`);
+    } catch (webhookError) {
+      console.error(`❌ Failed to register uninstall webhook for ${session.shop}`, webhookError);
+    }
+
+    // Store a lightweight cookie for your API routes
     res.cookie(
       process.env.SESSION_COOKIE_NAME || "app_session",
       JSON.stringify({
