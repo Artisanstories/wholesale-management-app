@@ -1,4 +1,3 @@
-// web/src/lib/authFetch.ts
 import createApp from '@shopify/app-bridge';
 import { getSessionToken } from '@shopify/app-bridge-utils';
 
@@ -38,18 +37,16 @@ export async function authFetch(
 ) {
   const res = await doFetch(input, init);
 
-  // 1) Force reauth if server asks for it
   if (res.status === 401 && res.headers.get('X-Shopify-API-Request-Failure-Reauthorize') === '1') {
     if (!reauthInFlight) {
       reauthInFlight = true;
       const { shop, host } = currentShopAndHost();
       const to = `/api/auth/inline?${new URLSearchParams({ shop, host }).toString()}`;
-      window.location.href = to; // redirects inside the iframe (embedded-safe)
+      window.location.href = to;
     }
     throw new Error('Reauthorizing…');
   }
 
-  // 2) Retry once on transient upstream errors
   if (opts.retryOn5xx && (res.status === 502 || res.status === 503 || res.status === 504)) {
     await new Promise(r => setTimeout(r, 1200));
     return doFetch(input, init);
