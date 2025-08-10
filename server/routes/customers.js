@@ -53,22 +53,20 @@ async function getShopFromAuthHeader(shopify, req) {
     const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length) : '';
     if (!token) return null;
     const payload = await shopify.utils.decodeSessionToken(token);
-    const dest = (payload.dest || '').toString(); // https://{shop}.myshopify.com
+    const dest = (payload.dest || '').toString();
     return dest.replace(/^https?:\/\//, '');
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-// GET /api/customers
 router.get('/', async (req, res) => {
   const shopify = req.shopify;
 
   try {
-    // ⚠️ Guard: only try to read session if we actually have a JWT
+    // Only try to read session when a JWT is present
     const auth = req.headers.authorization || '';
     if (!auth.startsWith('Bearer ')) {
-      const shop = (req.query.shop || (await getShopFromAuthHeader(shopify, req)) || '').toString();
+      const shop =
+        String(req.query.shop || '') || (await getShopFromAuthHeader(shopify, req)) || '';
       return res
         .status(401)
         .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
@@ -81,7 +79,6 @@ router.get('/', async (req, res) => {
       rawRequest: req,
       rawResponse: res,
     });
-
     const session = sessionId
       ? await shopify.config.sessionStorage.loadSession(sessionId)
       : null;
