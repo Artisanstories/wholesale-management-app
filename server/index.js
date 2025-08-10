@@ -135,3 +135,96 @@ app.get("/", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+// CSV export of the wholesale preview
+app.get("/api/wholesale/export.csv", verifyRequest, async (req, res) => {
+  try {
+    const { shop, accessToken } = req.shopifySession;
+    const client = new shopify.clients.Rest({ session: { shop, accessToken } });
+
+    const limit = Number(req.query.limit || 100);
+    const showVat = String(req.query.showVat || "0") === "1";
+    const discountPct = parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20");
+    const vatPct = parseFloat(process.env.VAT_RATE_PERCENT || "20");
+    const discount = discountPct / 100;
+    const vat = vatPct / 100;
+
+    const result = await client.get({
+      path: "products",
+      query: {
+        limit,
+        fields: "id,title,product_type,status,variants"
+      }
+    });
+
+    const products = result?.body?.products || [];
+
+    const items = products.flatMap((p) => {
+      if ((p.product_type || "").toLowerCase().includes("gift")) return [];
+      if (p.status && p.status !== "active") return [];
+
+      return (p.variants || []).flatMap((v) => {
+        const retail = Number.parseFloat(v.price);
+        if (!Number.isFinite(retail) || retail <= 0) return [];
+
+        const wholesale = +(retail * (1 - discount)).toFixed(2);
+        const retailIncVat = +(retail * (1 + vat)).toFixed(2);
+        const wholesaleIncVat = +(wholesale * (1 + vat)).toFixed(2);
+
+        return [{
+          productTitle: p.title,
+          variantTitle: v.title || "",
+          retail,
+          wholesale,
+          retailIncVat,
+          wholesaleIncVat,
+          productId: p.id,
+          variantId: v.id
+        }];
+      });
+    });
+
+    // Build CSV
+    const headers = [
+      "Product",
+      "Variant",
+      "Retail (ex VAT)",
+      "Wholesale (ex VAT)",
+      "Retail (inc VAT)",
+      "Wholesale (inc VAT)",
+      "Product ID",
+      "Variant ID"
+    ];
+
+    const escape = (val) => {
+      const s = String(val ?? "");
+      // wrap in quotes and escape quotes
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+
+    const rows = items.map((i) => [
+      i.productTitle,
+      i.variantTitle || "",
+      i.retail.toFixed(2),
+      i.wholesale.toFixed(2),
+      i.retailIncVat.toFixed(2),
+      i.wholesaleIncVat.toFixed(2),
+      i.productId,
+      i.variantId
+    ].map(escape).join(","));
+
+    const csv = [headers.map(escape).join(","), ...rows].join("\n");
+
+    const date = new Date();
+    const stamp = date.toISOString().slice(0, 10); // YYYY-MM-DD
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="wholesale_preview_${stamp}.csv"`);
+
+    // If the user chose "Show VAT" in the UI, they probably want the inc-VAT columns.
+    // We still include both ex/ inc VAT in the file, so no extra handling needed.
+    res.send(csv);
+  } catch (e) {
+    console.error("wholesale/export.csv error:", e);
+    res.status(500).send("Failed to export CSV");
+  }
+});
+
