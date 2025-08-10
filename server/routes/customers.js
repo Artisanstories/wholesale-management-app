@@ -47,15 +47,37 @@ function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
   });
 }
 
-function headerShop(req) {
-  const h = (req.headers['x-shopify-shop-domain'] || '').toString();
-  return h || '';
-}
+// --- same robust shop extractor as server.js -------------------------------
+function extractShop(req) {
+  const qShop = (req.query.shop || '').toString().trim();
+  if (qShop) return qShop;
 
-/**
- * Load the **online** session using Shopify v7's helper.
- * If there's no valid session, respond with 401 + reauth headers and return null.
- */
+  const hdr = (req.headers['x-shopify-shop-domain'] || '').toString().trim();
+  if (hdr) return hdr;
+
+  const host = (req.query.host || '').toString().trim();
+  if (host) {
+    try {
+      const decoded = Buffer.from(host, 'base64').toString('utf8');
+      const m1 = decoded.match(/([a-z0-9-]+\.myshopify\.com)/i);
+      if (m1) return m1[1];
+      const m2 = decoded.match(/\/store\/([^/?#]+)/i);
+      if (m2) return `${m2[1]}.myshopify.com`;
+    } catch {}
+  }
+
+  const referer = (req.headers.referer || '').toString();
+  try {
+    const u = new URL(referer);
+    const refShop = u.searchParams.get('shop');
+    if (refShop) return refShop;
+  } catch {}
+
+  return '';
+}
+// --------------------------------------------------------------------------
+
+/** Load the **online** session using v7 helpers. */
 async function loadOnlineSession(shopify, req, res) {
   const sessionId = await shopify.session.getCurrentId({
     isOnline: true,
@@ -64,7 +86,7 @@ async function loadOnlineSession(shopify, req, res) {
   });
 
   if (!sessionId) {
-    const shop = (req.query.shop || headerShop(req) || '').toString();
+    const shop = extractShop(req);
     res
       .status(401)
       .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
@@ -78,7 +100,7 @@ async function loadOnlineSession(shopify, req, res) {
 
   const session = await shopify.config.sessionStorage.loadSession(sessionId);
   if (!session) {
-    const shop = (req.query.shop || headerShop(req) || '').toString();
+    const shop = extractShop(req);
     res
       .status(401)
       .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
@@ -131,7 +153,7 @@ router.get('/', async (req, res) => {
         console.error('Shopify REST customers error:', status, body);
 
         if (status === 401) {
-          const shop = session.shop || headerShop(req);
+          const shop = session.shop || extractShop(req);
           return res
             .status(401)
             .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
