@@ -8,8 +8,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@shopify/app-bridge": "^3.7.7",
-    "@shopify/app-bridge-utils": "^3.7.7"
+    "@shopify/app-bridge": "^3.7.0",
+    "@shopify/app-bridge-utils": "^3.7.0"
   },
   "devDependencies": {
     "vite": "^5.4.0"
