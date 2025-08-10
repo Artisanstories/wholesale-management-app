@@ -7,7 +7,7 @@ import App from "./App";
 import { AppProvider } from "@shopify/polaris";
 import en from "@shopify/polaris/locales/en.json";
 
-// ✅ API endpoint used by App.tsx to fetch customers
+// API used by App.tsx
 (window as any).CUSTOMER_API = "/api/customers";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
