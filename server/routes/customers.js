@@ -1,3 +1,4 @@
+// server/routes/customers.js
 const express = require('express');
 const router = express.Router();
 
@@ -46,6 +47,21 @@ function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
   });
 }
 
+// Helper: extract shop from the JWT so we can reauth
+async function getShopFromAuthHeader(shopify, req) {
+  try {
+    const hdr = req.headers.authorization || '';
+    const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length) : '';
+    if (!token) return null;
+    const payload = await shopify.utils.decodeSessionToken(token);
+    const dest = (payload.dest || '').toString(); // e.g. https://{shop}.myshopify.com
+    return dest.replace(/^https?:\/\//, '');
+  } catch {
+    return null;
+  }
+}
+
+// GET /api/customers
 router.get('/', async (req, res) => {
   try {
     const shopify = req.shopify;
@@ -53,12 +69,27 @@ router.get('/', async (req, res) => {
     const sessionId = await shopify.session.getCurrentId({
       isOnline: true,
       rawRequest: req,
-      rawResponse: res
+      rawResponse: res,
     });
-    if (!sessionId) return res.status(401).json({ error: 'Unauthorized: no session id' });
 
-    const session = await shopify.config.sessionStorage.loadSession(sessionId);
-    if (!session) return res.status(401).json({ error: 'Unauthorized: no session' });
+    let session = null;
+    if (sessionId) {
+      session = await shopify.config.sessionStorage.loadSession(sessionId);
+    }
+
+    if (!session) {
+      // No session in memory (after deploy, etc). Tell the client to reauth.
+      const shop = (await getShopFromAuthHeader(shopify, req)) || '';
+      res
+        .status(401)
+        .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+        .set(
+          'X-Shopify-API-Request-Failure-Reauthorize-Url',
+          `/api/auth?shop=${encodeURIComponent(shop)}`
+        )
+        .json({ error: 'Unauthorized: no active session' });
+      return;
+    }
 
     const search = String(req.query.search || '');
     const statuses = String(req.query.status || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -78,8 +109,8 @@ router.get('/', async (req, res) => {
         query: {
           limit,
           fields: 'id,first_name,last_name,email,created_at,note,tags,default_address',
-          page_info: pageInfo?.nextPage?.query?.page_info
-        }
+          page_info: pageInfo?.nextPage?.query?.page_info,
+        },
       });
 
       const items = Array.isArray(resp?.body?.customers) ? resp.body.customers : [];
