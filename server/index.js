@@ -31,9 +31,7 @@ app.use(cookieParser());
 app.use(express.json());
 
 // Ensure DB tables exist on boot
-await ensureTables().catch((e) =>
-  console.error("[DB] ensureTables failed:", e)
-);
+await ensureTables().catch((e) => console.error("[DB] ensureTables failed:", e));
 
 // OAuth routes
 app.use("/api", authRouter);
@@ -281,6 +279,124 @@ app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
   } catch (e) {
     console.error("wholesale/preview error:", e);
     res.status(500).json({ error: "Failed to load preview" });
+  }
+});
+
+/* ---------- CSV Export (supports customerId + VAT toggle) ---------- */
+
+app.get("/api/wholesale/export.csv", verifyRequest, async (req, res) => {
+  try {
+    const { shop, accessToken } = req.shopifySession;
+    const client = new shopify.clients.Rest({ session: { shop, accessToken } });
+
+    const limit = Number(req.query.limit || 100);
+    const customerId = req.query.customerId ? String(req.query.customerId) : null;
+
+    // Base settings (defaults → DB)
+    const defaults = {
+      discountPercent: parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20"),
+      vatPercent: parseFloat(process.env.VAT_RATE_PERCENT || "20"),
+    };
+    const saved = await getSettingsForShop(shop);
+    const defaultDiscount = saved?.discountPercent ?? defaults.discountPercent;
+    const vatPct = saved?.vatPercent ?? defaults.vatPercent;
+
+    // Effective discount via tag rules
+    let effectiveDiscount = defaultDiscount;
+    if (customerId) {
+      const cRes = await client.get({
+        path: `customers/${customerId}`,
+        query: { fields: "id,tags" },
+      });
+      const c = cRes?.body?.customer;
+      if (c) {
+        const tags = (c.tags || "")
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+        effectiveDiscount = await getDiscountForTags(shop, tags, defaultDiscount);
+      }
+    }
+
+    const discount = effectiveDiscount / 100;
+    const vat = vatPct / 100;
+
+    const result = await client.get({
+      path: "products",
+      query: {
+        limit,
+        fields: "id,title,product_type,status,variants",
+      },
+    });
+
+    const products = result?.body?.products || [];
+
+    const items = products.flatMap((p) => {
+      if ((p.product_type || "").toLowerCase().includes("gift")) return [];
+      if (p.status && p.status !== "active") return [];
+
+      return (p.variants || []).flatMap((v) => {
+        const retail = Number.parseFloat(v.price);
+        if (!Number.isFinite(retail) || retail <= 0) return [];
+
+        const wholesale = +(retail * (1 - discount)).toFixed(2);
+        const retailIncVat = +(retail * (1 + vat)).toFixed(2);
+        const wholesaleIncVat = +(wholesale * (1 + vat)).toFixed(2);
+
+        return [
+          {
+            productTitle: p.title,
+            variantTitle: v.title || "",
+            retail,
+            wholesale,
+            retailIncVat,
+            wholesaleIncVat,
+            productId: p.id,
+            variantId: v.id,
+          },
+        ];
+      });
+    });
+
+    const headers = [
+      "Product",
+      "Variant",
+      "Retail (ex VAT)",
+      "Wholesale (ex VAT)",
+      "Retail (inc VAT)",
+      "Wholesale (inc VAT)",
+      "Product ID",
+      "Variant ID",
+    ];
+
+    const escape = (val) => `"${String(val ?? "").replace(/"/g, '""')}"`;
+
+    const rows = items.map((i) =>
+      [
+        i.productTitle,
+        i.variantTitle,
+        i.retail.toFixed(2),
+        i.wholesale.toFixed(2),
+        i.retailIncVat.toFixed(2),
+        i.wholesaleIncVat.toFixed(2),
+        i.productId,
+        i.variantId,
+      ]
+        .map(escape)
+        .join(",")
+    );
+
+    const csv = [headers.map(escape).join(","), ...rows].join("\n");
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="wholesale_preview_${stamp}.csv"`
+    );
+    res.send(csv);
+  } catch (e) {
+    console.error("wholesale/export.csv error:", e);
+    res.status(500).send("Failed to export CSV");
   }
 });
 
