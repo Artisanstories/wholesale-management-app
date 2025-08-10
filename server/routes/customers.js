@@ -1,3 +1,4 @@
+// server/routes/customers.js
 const express = require('express');
 const router = express.Router();
 
@@ -8,10 +9,10 @@ const TAGS = {
 };
 
 function mapStatusFromCustomer(c) {
-  const tagList = (c.tags || '').split(',').map((t) => t.trim().toLowerCase());
-  if (tagList.some((t) => TAGS.approved.includes(t))) return 'approved';
-  if (tagList.some((t) => TAGS.rejected.includes(t))) return 'rejected';
-  if (tagList.some((t) => TAGS.pending.includes(t))) return 'pending';
+  const tagList = (c.tags || '').split(',').map(t => t.trim().toLowerCase());
+  if (tagList.some(t => TAGS.approved.includes(t))) return 'approved';
+  if (tagList.some(t => TAGS.rejected.includes(t))) return 'rejected';
+  if (tagList.some(t => TAGS.pending.includes(t))) return 'pending';
   return 'pending';
 }
 
@@ -21,7 +22,7 @@ function toClientCustomer(c) {
     name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || 'Customer',
     email: c.email || '',
     company: c.default_address?.company || c.note || '',
-    tags: (c.tags || '').split(',').map((t) => t.trim()).filter(Boolean),
+    tags: (c.tags || '').split(',').map(t => t.trim()).filter(Boolean),
     status: mapStatusFromCustomer(c),
     createdAt: c.created_at,
   };
@@ -29,31 +30,30 @@ function toClientCustomer(c) {
 
 function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
   const q = search.trim().toLowerCase();
-  return list.filter((c) => {
+  return list.filter(c => {
     const matchQ =
       !q ||
       [c.first_name, c.last_name, c.email, c.default_address?.company, c.note]
         .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q));
+        .some(v => String(v).toLowerCase().includes(q));
 
     const clientShape = toClientCustomer(c);
     const matchS = statuses.length === 0 || statuses.includes(clientShape.status);
     const matchT =
       tags.length === 0 ||
-      tags.every((t) => clientShape.tags.map((x) => x.toLowerCase()).includes(t));
+      tags.every(t => clientShape.tags.map(x => x.toLowerCase()).includes(t));
 
     return matchQ && matchS && matchT;
   });
 }
 
-// Helper to pull shop from an App Bridge JWT (when present)
 async function getShopFromAuthHeader(shopify, req) {
   try {
     const hdr = req.headers.authorization || '';
     const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length) : '';
     if (!token) return null;
     const payload = await shopify.utils.decodeSessionToken(token);
-    const dest = (payload.dest || '').toString(); // https://{shop}.myshopify.com
+    const dest = (payload.dest || '').toString();
     return dest.replace(/^https?:\/\//, '');
   } catch {
     return null;
@@ -61,9 +61,9 @@ async function getShopFromAuthHeader(shopify, req) {
 }
 
 router.get('/', async (req, res) => {
-  try {
-    const shopify = req.shopify;
+  const shopify = req.shopify;
 
+  try {
     const sessionId = await shopify.session.getCurrentId({
       isOnline: true,
       rawRequest: req,
@@ -79,23 +79,13 @@ router.get('/', async (req, res) => {
       return res
         .status(401)
         .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-        .set(
-          'X-Shopify-API-Request-Failure-Reauthorize-Url',
-          `/api/auth?shop=${encodeURIComponent(shop)}`
-        )
-        .json({ error: 'Unauthorized' });
+        .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth?shop=${encodeURIComponent(shop)}`)
+        .json({ error: 'Unauthorized: no active session' });
     }
 
     const search = String(req.query.search || '');
-    const statuses = String(req.query.status || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const tags = String(req.query.tags || '')
-      .toLowerCase()
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
+    const statuses = String(req.query.status || '').split(',').map(s => s.trim()).filter(Boolean);
+    const tags = String(req.query.tags || '').toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
     const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 250);
 
     const admin = new shopify.clients.Rest({ session });
@@ -106,29 +96,45 @@ router.get('/', async (req, res) => {
     const maxPages = 2;
 
     do {
-      const resp = await admin.get({
-        path: 'customers',
-        query: {
-          limit,
-          fields:
-            'id,first_name,last_name,email,created_at,note,tags,default_address',
-          page_info: pageInfo?.nextPage?.query?.page_info,
-        },
-      });
+      let resp;
+      try {
+        resp = await admin.get({
+          path: 'customers',
+          query: {
+            limit,
+            fields: 'id,first_name,last_name,email,created_at,note,tags,default_address',
+            page_info: pageInfo?.nextPage?.query?.page_info,
+          },
+        });
+      } catch (apiErr) {
+        // If Shopify returns 401 (expired/invalid), trigger reauth
+        const status = apiErr?.response?.code || apiErr?.status || 500;
+        const body = apiErr?.response?.body || apiErr?.message;
+        console.error('Shopify REST customers error:', status, body);
 
-      const items = Array.isArray(resp?.body?.customers)
-        ? resp.body.customers
-        : [];
+        if (status === 401) {
+          const shop = (await getShopFromAuthHeader(shopify, req)) || session.shop;
+          return res
+            .status(401)
+            .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+            .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth?shop=${encodeURIComponent(shop)}`)
+            .json({ error: 'Reauthorize required' });
+        }
+
+        return res.status(500).json({ error: 'Shopify API error', details: body });
+      }
+
+      const items = Array.isArray(resp?.body?.customers) ? resp.body.customers : [];
       collected.push(...filterCustomers(items, { search, statuses, tags }));
 
       pageInfo = resp.pageInfo;
       pagesFetched += 1;
     } while (pageInfo?.nextPage && pagesFetched < maxPages);
 
-    res.json(collected.map(toClientCustomer));
+    return res.json(collected.map(toClientCustomer));
   } catch (err) {
-    console.error('/api/customers error', err);
-    res.status(500).json({ error: 'Failed to load customers' });
+    console.error('/api/customers fatal error:', err);
+    return res.status(500).json({ error: 'Failed to load customers' });
   }
 });
 
