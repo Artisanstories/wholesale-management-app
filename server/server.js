@@ -1,67 +1,37 @@
 // server/server.js
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const cors = require('cors');
-require('dotenv').config();
+const cookieParser = require('cookie-parser');
 
 const { initShopify } = require('./shopify-config');
-const customersRoute = require('./routes/customers');
-const theme = require('./routes/theme');
-const webhooks = require('./routes/webhooks');
 const authRouter = require('./auth');
+const customersRoute = require('./routes/customers');
 
 const app = express();
-app.use(cors());
+app.set('trust proxy', 1); // important on Render for secure cookies
+
+app.use(cookieParser());
 app.use(express.json());
-
-// Inject Shopify instance when ready
-function ensureShopifyReady(req, res, next) {
-  const shopify = req.app.locals.shopify;
-  if (!shopify) return res.status(503).json({ error: 'Shopify not initialized yet' });
-  req.shopify = shopify;
-  next();
-}
-
-// API routes
-app.use('/api', ensureShopifyReady, authRouter);
-app.use('/api/customers', ensureShopifyReady, customersRoute);
-if (theme?.router) app.use('/api/theme', ensureShopifyReady, theme.router);
-if (webhooks?.router) app.use('/api/webhooks', ensureShopifyReady, webhooks.router);
-
-// Serve the React build
-app.use(express.static(path.join(__dirname, '..', 'web', 'dist')));
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'web', 'dist', 'index.html'));
-});
-
-// ---- SINGLE-START GUARD ----
-global.__AS_SERVER_STARTED__ = global.__AS_SERVER_STARTED__ || false;
 
 (async () => {
   try {
     const shopify = await initShopify();
-    app.locals.shopify = shopify;
+    // attach the SDK to every /api request
+    app.use((req, _res, next) => { req.shopify = shopify; next(); });
 
-    if (!global.__AS_SERVER_STARTED__) {
-      global.__AS_SERVER_STARTED__ = true;
+    // API routes
+    app.use('/api', authRouter);             // /api/auth, /api/auth/inline, /api/auth/callback, /api/ensure-auth
+    app.use('/api/customers', customersRoute);
 
-      const PORT = Number(process.env.PORT) || 3000;
-      const server = app.listen(PORT, '0.0.0.0', () =>
-        console.log(`Server running on :${PORT}`)
-      );
+    // Serve the built React app
+    app.use(express.static(path.join(__dirname, '..', 'web', 'dist')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(__dirname, '..', 'web', 'dist', 'index.html'));
+    });
 
-      server.on('error', (err) => {
-        if (err && err.code === 'EADDRINUSE') {
-          console.warn('[warn] Port already in use; skipping duplicate listener.');
-          // Do not throw — let the first instance keep running.
-        } else {
-          console.error(err);
-          process.exit(1);
-        }
-      });
-    } else {
-      console.log('[info] Server already started; skipping duplicate listen.');
-    }
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => console.log(`Server running on :${PORT}`));
   } catch (e) {
     console.error('Failed to init Shopify:', e);
     process.exit(1);
