@@ -1,24 +1,22 @@
 // server/routes/theme.js
-import express from "express";
-import { shopify } from "../shopify.js";
+const express = require("express");
+const { shopify } = require("../shopify-config");
 
 const router = express.Router();
 
 /**
- * Injects the wholesale snippet into the main store theme.
- * @param {Session} session
+ * Inject the wholesale snippet into the main theme.
+ * @param {import('@shopify/shopify-api').Session} session
  */
-export async function injectWholesaleSnippet(session) {
+async function injectWholesaleSnippet(session) {
   const admin = new shopify.api.clients.Rest({ session });
 
-  // 1️⃣ Snippet code
   const snippetCode = `
 {% comment %}
   Wholesale Pricing Snippet
-  - Hides prices for non-logged-in customers
-  - Applies discount for tagged wholesale customers
+  - Hides prices for guests
+  - Exposes discount & VAT flags for wholesale customers
 {% endcomment %}
-
 {% if customer %}
   {% assign discount = 0 %}
   {% if customer.tags contains 'wholesale-uk' %}
@@ -26,16 +24,13 @@ export async function injectWholesaleSnippet(session) {
   {% elsif customer.tags contains 'wholesale-us' %}
     {% assign discount = 35 %}
   {% endif %}
-
   <script>
     window.WHOLESALE_DISCOUNT = {{ discount }};
     window.VAT_INCLUDED = {{ shop.metafields.wholesale.vat_toggle | default: false }};
   </script>
 {% else %}
   <style>
-    .price, .product-price, .product-form__submit {
-      display: none !important;
-    }
+    .price, .product-price, .product-form__submit { display: none !important; }
   </style>
   <div style="padding: 1rem; text-align: center;">
     <a href="/account/login" class="button">Login to view wholesale pricing</a>
@@ -43,66 +38,51 @@ export async function injectWholesaleSnippet(session) {
 {% endif %}
 `;
 
-  // 2️⃣ Upload snippet file
+  // Upload snippet
   await admin.put({
-    path: `assets`,
-    data: {
-      asset: {
-        key: "snippets/wholesale-pricing.liquid",
-        value: snippetCode
-      }
-    },
-    type: "application/json"
+    path: "assets",
+    data: { asset: { key: "snippets/wholesale-pricing.liquid", value: snippetCode } },
+    type: "application/json",
   });
 
-  // 3️⃣ Get main theme
+  // Find main theme
   const themesResp = await admin.get({ path: "themes" });
-  const mainTheme = themesResp.body.themes.find(t => t.role === "main");
+  const mainTheme = themesResp.body.themes.find((t) => t.role === "main");
   if (!mainTheme) throw new Error("Main theme not found");
 
-  // 4️⃣ Get theme.liquid content
+  // Load theme.liquid
   const themeLiquidResp = await admin.get({
     path: `themes/${mainTheme.id}/assets`,
-    query: { "asset[key]": "layout/theme.liquid" }
+    query: { "asset[key]": "layout/theme.liquid" },
   });
-  let themeContent = themeLiquidResp.body.asset.value;
+  let themeContent = themeLiquidResp.body.asset.value || "";
 
-  // 5️⃣ Inject include if not present
+  // Inject include before </body>
   if (!themeContent.includes("{% include 'wholesale-pricing' %}")) {
     themeContent = themeContent.replace(
       "</body>",
       "{% include 'wholesale-pricing' %}\n</body>"
     );
-
     await admin.put({
       path: `themes/${mainTheme.id}/assets`,
-      data: {
-        asset: {
-          key: "layout/theme.liquid",
-          value: themeContent
-        }
-      },
-      type: "application/json"
+      data: { asset: { key: "layout/theme.liquid", value: themeContent } },
+      type: "application/json",
     });
   }
 
-  console.log(`✅ Wholesale snippet injected for shop ${session.shop}`);
+  console.log(`✅ Wholesale snippet injected for ${session.shop}`);
 }
 
-/**
- * API endpoint to manually trigger snippet injection (for testing)
- */
+// Optional: manual trigger for testing
 router.post("/inject", async (req, res) => {
   try {
-    const session = await shopify.config.sessionStorage.loadSession(
-      res.locals.shopify.session.id
-    );
-    await injectWholesaleSnippet(session);
-    res.json({ success: true });
+    // If you set res.locals.shopify.session earlier, use that.
+    // Otherwise load from your storage (omitted here for brevity).
+    res.status(501).json({ error: "Bind session loading for manual inject if needed." });
   } catch (err) {
     console.error("Theme injection failed:", err);
     res.status(500).json({ error: "Theme injection failed" });
   }
 });
 
-export default router;
+module.exports = { router, injectWholesaleSnippet };
