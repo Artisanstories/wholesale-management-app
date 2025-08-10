@@ -1,6 +1,7 @@
 // server/server.js
 const express = require('express');
 const path = require('path');
+const cors = require('cors');
 require('dotenv').config();
 
 const { initShopify } = require('./shopify-config');
@@ -10,32 +11,32 @@ const webhooks = require('./routes/webhooks');
 const authRouter = require('./auth');
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
-// Ensure Shopify is ready and inject it on the request
 function ensureShopifyReady(req, res, next) {
   const shopify = req.app.locals.shopify;
   if (!shopify) return res.status(503).json({ error: 'Shopify not initialized yet' });
-  req.shopify = shopify;
+  req.shopify = shopify; // inject for downstream routes
   next();
 }
 
-// Routes (Shopify instance available as req.shopify)
-app.use('/api', ensureShopifyReady, authRouter);               // /api/auth, /api/auth/callback
+// Routes
+app.use('/api', ensureShopifyReady, authRouter);            // /api/auth, /api/auth/callback
 app.use('/api/customers', ensureShopifyReady, customersRoute);
 app.use('/api/theme', ensureShopifyReady, theme.router);
 app.use('/api/webhooks', ensureShopifyReady, webhooks.router);
 
-// Serve React build
+// Serve the React app
 app.use(express.static(path.join(__dirname, '..', 'web', 'dist')));
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'web', 'dist', 'index.html'));
 });
 
-// Boot (initialize Shopify once, then start server)
+// Boot
 (async () => {
   try {
-    const shopify = await initShopify(); // does dynamic ESM imports
+    const shopify = await initShopify();
     app.locals.shopify = shopify;
 
     const PORT = process.env.PORT || 3000;
