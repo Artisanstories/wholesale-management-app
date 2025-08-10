@@ -2,23 +2,17 @@
 const express = require('express');
 const router = express.Router();
 
-/* ------------ Helpers ------------- */
-
 const TAGS = {
   approved: ['wholesale-approved', 'approved', 'wholesale'],
   pending: ['wholesale-pending', 'pending'],
   rejected: ['wholesale-rejected', 'rejected'],
 };
 
-function mapStatusFromCustomer(cust) {
-  const tagList = (cust.tags || '')
-    .split(',')
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (tagList.some((t) => TAGS.approved.includes(t))) return 'approved';
-  if (tagList.some((t) => TAGS.rejected.includes(t))) return 'rejected';
-  if (tagList.some((t) => TAGS.pending.includes(t))) return 'pending';
+function mapStatusFromCustomer(c) {
+  const tagList = (c.tags || '').split(',').map(t => t.trim().toLowerCase());
+  if (tagList.some(t => TAGS.approved.includes(t))) return 'approved';
+  if (tagList.some(t => TAGS.rejected.includes(t))) return 'rejected';
+  if (tagList.some(t => TAGS.pending.includes(t))) return 'pending';
   return 'pending';
 }
 
@@ -28,7 +22,7 @@ function toClientCustomer(c) {
     name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || 'Customer',
     email: c.email || '',
     company: c.default_address?.company || c.note || '',
-    tags: (c.tags || '').split(',').map((t) => t.trim()).filter(Boolean),
+    tags: (c.tags || '').split(',').map(t => t.trim()).filter(Boolean),
     status: mapStatusFromCustomer(c),
     createdAt: c.created_at,
   };
@@ -36,158 +30,123 @@ function toClientCustomer(c) {
 
 function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
   const q = search.trim().toLowerCase();
-  return list.filter((c) => {
-    const haystack = [
-      c.first_name,
-      c.last_name,
-      c.email,
-      c.default_address?.company,
-      c.note,
-    ]
-      .filter(Boolean)
-      .map((v) => String(v).toLowerCase());
+  return list.filter(c => {
+    const matchQ =
+      !q ||
+      [c.first_name, c.last_name, c.email, c.default_address?.company, c.note]
+        .filter(Boolean)
+        .some(v => String(v).toLowerCase().includes(q));
 
-    const matchQ = !q || haystack.some((v) => v.includes(q));
-
-    const shaped = toClientCustomer(c);
-    const matchS = statuses.length === 0 || statuses.includes(shaped.status);
-
-    const shapedTagsLc = shaped.tags.map((t) => t.toLowerCase());
-    const matchT = tags.length === 0 || tags.every((t) => shapedTagsLc.includes(t));
+    const clientShape = toClientCustomer(c);
+    const matchS = statuses.length === 0 || statuses.includes(clientShape.status);
+    const matchT =
+      tags.length === 0 ||
+      tags.every(t => clientShape.tags.map(x => x.toLowerCase()).includes(t));
 
     return matchQ && matchS && matchT;
   });
 }
 
-// Try to read shop domain from the JWT (dest/iss)
-async function shopFromAuthHeader(shopify, req) {
+function headerShop(req) {
+  const h = (req.headers['x-shopify-shop-domain'] || '').toString();
+  return h || '';
+}
+
+async function decodeJwt(shopify, req) {
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ')) return null;
   try {
-    const hdr = req.headers.authorization || '';
-    const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length) : '';
-    if (!token) return '';
-    const payload = await shopify.utils.decodeSessionToken(token);
-    const url = (payload.dest || payload.iss || '').toString();
-    return url.replace(/^https?:\/\//, '');
+    const token = auth.slice('Bearer '.length);
+    return await shopify.utils.decodeSessionToken(token);
   } catch {
-    return '';
+    return null;
   }
 }
 
-/* --------- Auth gate (middleware) ---------- */
-/* Requires a Bearer token and loads the session.
-   On failure, returns 401 + reauthorize headers Shopify expects. */
-router.use(async (req, res, next) => {
-  const shopify = req.shopify;
+/**
+ * Load the **online** session by JWT (no cookies).
+ * If missing, tell the client to re-authorize.
+ */
+async function loadOnlineSession(shopify, req, res) {
+  const payload = await decodeJwt(shopify, req);
+  if (!payload) return null;
 
-  // Must be called from the embedded app using App Bridge (Bearer token)
-  const auth = req.headers.authorization || '';
-  if (!auth.startsWith('Bearer ')) {
-    const shop = (await shopFromAuthHeader(shopify, req)) || String(req.query.shop || '');
-    return res
+  const dest = (payload.dest || '').toString().replace(/^https?:\/\//, '');
+  const sessionId = shopify.session.getJwtSessionId(dest, payload.sub);
+  const session = await shopify.config.sessionStorage.loadSession(sessionId);
+
+  if (!session) {
+    const shop = dest || headerShop(req);
+    res
       .status(401)
       .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-      .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`)
-      .json({ error: 'Unauthorized: missing token' });
+      .set(
+        'X-Shopify-API-Request-Failure-Reauthorize-Url',
+        `/api/auth/inline?shop=${encodeURIComponent(shop)}`
+      )
+      .json({ error: 'Reauthorize required' });
+    return null;
   }
-
-  try {
-    const sessionId = await shopify.session.getCurrentId({
-      isOnline: true,
-      rawRequest: req,
-      rawResponse: res,
-    });
-
-    if (!sessionId) {
-      const shop = (await shopFromAuthHeader(shopify, req)) || String(req.query.shop || '');
-      return res
-        .status(401)
-        .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-        .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`)
-        .json({ error: 'Unauthorized: no session id' });
-    }
-
-    const session = await req.shopify.config.sessionStorage.loadSession(sessionId);
-    if (!session) {
-      const shop = (await shopFromAuthHeader(shopify, req)) || '';
-      return res
-        .status(401)
-        .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-        .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`)
-        .json({ error: 'Unauthorized: session not found' });
-    }
-
-    req.shopifySession = session;
-    return next();
-  } catch (e) {
-    return next(e);
-  }
-});
-
-/* --------------- Routes ---------------- */
+  return session;
+}
 
 router.get('/', async (req, res) => {
   const shopify = req.shopify;
-  const session = req.shopifySession;
-
-  const search = String(req.query.search || '');
-  const statuses = String(req.query.status || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const tags = String(req.query.tags || '')
-    .toLowerCase()
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean);
-
-  // clamp 1..250
-  const limit = Math.min(Math.max(parseInt(req.query.limit || '100', 10) || 100, 1), 250);
-
-  const admin = new shopify.clients.Rest({ session });
 
   try {
-    let results = [];
+    const session = await loadOnlineSession(shopify, req, res);
+    if (!session) return; // response already sent with 401 + reauth headers
+
+    const search = String(req.query.search || '');
+    const statuses = String(req.query.status || '').split(',').map(s => s.trim()).filter(Boolean);
+    const tags = String(req.query.tags || '').toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+    const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 250);
+
+    const admin = new shopify.clients.Rest({ session });
+
+    let collected = [];
     let pageInfo;
     let pagesFetched = 0;
-    const maxPages = 2; // keep it light
+    const maxPages = 2;
 
     do {
-      const query = {
-        fields: 'id,first_name,last_name,email,created_at,note,tags,default_address',
-      };
-      if (!pageInfo?.nextPage) {
-        query.limit = limit;
-      }
-      if (pageInfo?.nextPage?.query?.page_info) {
-        query.page_info = pageInfo.nextPage.query.page_info;
+      let resp;
+      try {
+        resp = await admin.get({
+          path: 'customers',
+          query: {
+            limit,
+            fields: 'id,first_name,last_name,email,created_at,note,tags,default_address',
+            page_info: pageInfo?.nextPage?.query?.page_info,
+          },
+        });
+      } catch (apiErr) {
+        const status = apiErr?.response?.code || apiErr?.status || 500;
+        const body = apiErr?.response?.body || apiErr?.message;
+        console.error('Shopify REST customers error:', status, body);
+
+        if (status === 401) {
+          const shop = session.shop || headerShop(req);
+          return res
+            .status(401)
+            .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+            .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth/inline?shop=${encodeURIComponent(shop)}`)
+            .json({ error: 'Reauthorize required' });
+        }
+        return res.status(500).json({ error: 'Shopify API error', details: body });
       }
 
-      const resp = await admin.get({ path: 'customers', query });
       const items = Array.isArray(resp?.body?.customers) ? resp.body.customers : [];
-
-      results.push(...filterCustomers(items, { search, statuses, tags }));
+      collected.push(...filterCustomers(items, { search, statuses, tags }));
 
       pageInfo = resp.pageInfo;
       pagesFetched += 1;
     } while (pageInfo?.nextPage && pagesFetched < maxPages);
 
-    return res.json(results.map(toClientCustomer));
-  } catch (apiErr) {
-    const status = apiErr?.response?.code || apiErr?.status || 500;
-    const details = apiErr?.response?.body || apiErr?.message || 'Shopify API error';
-
-    // On 401 tell the client to reauthorize at top-level
-    if (status === 401) {
-      const shop = (await shopFromAuthHeader(shopify, req)) || session.shop;
-      return res
-        .status(401)
-        .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-        .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`)
-        .json({ error: 'Reauthorize required' });
-    }
-
-    console.error('Shopify REST customers error:', status, details);
-    return res.status(500).json({ error: 'Shopify API error', details });
+    return res.json(collected.map(toClientCustomer));
+  } catch (err) {
+    console.error('/api/customers fatal error:', err);
+    return res.status(500).json({ error: 'Failed to load customers' });
   }
 });
 
