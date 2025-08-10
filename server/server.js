@@ -22,7 +22,8 @@ const authRouter = require('./auth');
   // Health check (set Render -> Health Check Path = /api/health)
   app.get('/api/health', (_req, res) => res.status(200).send('ok'));
 
-  const shopify = initShopify();
+  // IMPORTANT: await the init
+  const shopify = await initShopify();
 
   // Expose SDK to routes
   app.use((req, _res, next) => {
@@ -33,9 +34,26 @@ const authRouter = require('./auth');
   // Auth
   app.use('/api/auth', authRouter);
 
-  // Used by frontend on mount to verify session. Do NOT decode JWT yourself.
+  // Used by frontend on mount to verify session.
+  // Do NOT decode JWT yourself; only try to read session if a JWT is present.
   app.get('/api/ensure-auth', async (req, res) => {
     try {
+      const auth = req.headers.authorization || '';
+      const shopHeader = (req.headers['x-shopify-shop-domain'] || '').toString();
+      const shopQuery = (req.query.shop || '').toString();
+      const shop = shopHeader || shopQuery;
+
+      if (!auth.startsWith('Bearer ')) {
+        return res
+          .status(401)
+          .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+          .set(
+            'X-Shopify-API-Request-Failure-Reauthorize-Url',
+            `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
+          )
+          .send('Unauthorized');
+      }
+
       const sessionId = await shopify.session.getCurrentId({
         isOnline: true,
         rawRequest: req,
@@ -43,14 +61,12 @@ const authRouter = require('./auth');
       });
 
       if (!sessionId) {
-        const shop =
-          String(req.query.shop || req.headers['x-shopify-shop-domain'] || '');
         return res
           .status(401)
           .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
           .set(
             'X-Shopify-API-Request-Failure-Reauthorize-Url',
-            `/api/auth?shop=${encodeURIComponent(shop)}`
+            `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
           )
           .send('Unauthorized');
       }
