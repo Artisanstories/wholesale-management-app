@@ -74,6 +74,11 @@ export default function App() {
     loadWholesalePreview();
   }
 
+  function exportCsv() {
+    const url = `/api/wholesale/export.csv?limit=100&showVat=${showVat ? 1 : 0}`;
+    window.open(url, "_blank"); // triggers download
+  }
+
   return (
     <Page title="Wholesale Dashboard">
       <Box padding="400" className="space-y-6">
@@ -114,6 +119,9 @@ export default function App() {
                 />
                 <Button loading={loading} onClick={loadWholesalePreview}>
                   {loading ? "Loading…" : "Load preview"}
+                </Button>
+                <Button variant="secondary" onClick={exportCsv}>
+                  Export CSV
                 </Button>
               </InlineStack>
             </InlineStack>
