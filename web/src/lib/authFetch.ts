@@ -2,37 +2,35 @@
 import createApp from '@shopify/app-bridge';
 import { getSessionToken } from '@shopify/app-bridge-utils';
 
-let app: any;
-
-function getApp() {
-  if (app) return app;
-  const host = new URLSearchParams(window.location.search).get('host')!;
-  app = createApp({
-    apiKey: import.meta.env.VITE_SHOPIFY_API_KEY,
-    host,
-    forceRedirect: true, // sends us to top-level if Shopify needs to re-auth
-  });
-  return app;
+function getSearchParam(name: string) {
+  return new URLSearchParams(window.location.search).get(name) || '';
 }
 
-export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
-  const token = await getSessionToken(getApp());
+const app = createApp({
+  apiKey: import.meta.env.VITE_SHOPIFY_API_KEY,
+  host: getSearchParam('host'),
+  forceRedirect: true,
+});
 
-  const res = await fetch(input, {
-    ...init,
-    credentials: 'omit', // don't rely on cookies
-    headers: {
-      ...(init.headers || {}),
-      Authorization: `Bearer ${token}`,
-      'X-Requested-With': 'XMLHttpRequest',
-    },
-  });
+export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
+  const token = await getSessionToken(app);
 
-  // If Shopify asks us to reauthorize, bounce to /api/auth at top-level
-  if (res.status === 401 && res.headers.get('X-Shopify-API-Request-Failure-Reauthorize') === '1') {
-    const url = res.headers.get('X-Shopify-API-Request-Failure-Reauthorize-Url') || '/api/auth';
+  const headers = new Headers(init.headers || {});
+  headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(input, { ...init, headers });
+
+  if (
+    res.status === 401 &&
+    res.headers.get('X-Shopify-API-Request-Failure-Reauthorize') === '1'
+  ) {
+    const shop = getSearchParam('shop');
+    const host = getSearchParam('host');
+    const url = `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}${
+      host ? `${shop ? '&' : '?'}host=${encodeURIComponent(host)}` : ''
+    }`;
+    // top-level redirect so cookies/session are set correctly
     window.top!.location.href = url;
-    throw new Error('Reauthorizing…');
   }
 
   return res;
