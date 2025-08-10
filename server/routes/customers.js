@@ -9,10 +9,10 @@ const TAGS = {
 };
 
 function mapStatusFromCustomer(c) {
-  const tagList = (c.tags || '').split(',').map(t => t.trim().toLowerCase());
-  if (tagList.some(t => TAGS.approved.includes(t))) return 'approved';
-  if (tagList.some(t => TAGS.rejected.includes(t))) return 'rejected';
-  if (tagList.some(t => TAGS.pending.includes(t))) return 'pending';
+  const tagList = (c.tags || '').split(',').map((t) => t.trim().toLowerCase());
+  if (tagList.some((t) => TAGS.approved.includes(t))) return 'approved';
+  if (tagList.some((t) => TAGS.rejected.includes(t))) return 'rejected';
+  if (tagList.some((t) => TAGS.pending.includes(t))) return 'pending';
   return 'pending';
 }
 
@@ -22,7 +22,7 @@ function toClientCustomer(c) {
     name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || 'Customer',
     email: c.email || '',
     company: c.default_address?.company || c.note || '',
-    tags: (c.tags || '').split(',').map(t => t.trim()).filter(Boolean),
+    tags: (c.tags || '').split(',').map((t) => t.trim()).filter(Boolean),
     status: mapStatusFromCustomer(c),
     createdAt: c.created_at,
   };
@@ -30,103 +30,63 @@ function toClientCustomer(c) {
 
 function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
   const q = search.trim().toLowerCase();
-  return list.filter(c => {
+  return list.filter((c) => {
     const matchQ =
       !q ||
       [c.first_name, c.last_name, c.email, c.default_address?.company, c.note]
         .filter(Boolean)
-        .some(v => String(v).toLowerCase().includes(q));
+        .some((v) => String(v).toLowerCase().includes(q));
 
     const clientShape = toClientCustomer(c);
     const matchS = statuses.length === 0 || statuses.includes(clientShape.status);
     const matchT =
       tags.length === 0 ||
-      tags.every(t => clientShape.tags.map(x => x.toLowerCase()).includes(t));
+      tags.every((t) => clientShape.tags.map((x) => x.toLowerCase()).includes(t));
 
     return matchQ && matchS && matchT;
   });
-}
-
-// --- same robust shop extractor as server.js -------------------------------
-function extractShop(req) {
-  const qShop = (req.query.shop || '').toString().trim();
-  if (qShop) return qShop;
-
-  const hdr = (req.headers['x-shopify-shop-domain'] || '').toString().trim();
-  if (hdr) return hdr;
-
-  const host = (req.query.host || '').toString().trim();
-  if (host) {
-    try {
-      const decoded = Buffer.from(host, 'base64').toString('utf8');
-      const m1 = decoded.match(/([a-z0-9-]+\.myshopify\.com)/i);
-      if (m1) return m1[1];
-      const m2 = decoded.match(/\/store\/([^/?#]+)/i);
-      if (m2) return `${m2[1]}.myshopify.com`;
-    } catch {}
-  }
-
-  const referer = (req.headers.referer || '').toString();
-  try {
-    const u = new URL(referer);
-    const refShop = u.searchParams.get('shop');
-    if (refShop) return refShop;
-  } catch {}
-
-  return '';
-}
-// --------------------------------------------------------------------------
-
-/** Load the **online** session using v7 helpers. */
-async function loadOnlineSession(shopify, req, res) {
-  const sessionId = await shopify.session.getCurrentId({
-    isOnline: true,
-    rawRequest: req,
-    rawResponse: res,
-  });
-
-  if (!sessionId) {
-    const shop = extractShop(req);
-    res
-      .status(401)
-      .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-      .set(
-        'X-Shopify-API-Request-Failure-Reauthorize-Url',
-        `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
-      )
-      .json({ error: 'Unauthorized: no session id' });
-    return null;
-  }
-
-  const session = await shopify.config.sessionStorage.loadSession(sessionId);
-  if (!session) {
-    const shop = extractShop(req);
-    res
-      .status(401)
-      .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-      .set(
-        'X-Shopify-API-Request-Failure-Reauthorize-Url',
-        `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
-      )
-      .json({ error: 'Unauthorized: session not found' });
-    return null;
-  }
-
-  return session;
 }
 
 router.get('/', async (req, res) => {
   const shopify = req.shopify;
 
   try {
-    const session = await loadOnlineSession(shopify, req, res);
-    if (!session) return; // 401 already sent
+    // Load online session via SDK helper (works with JWT)
+    const sessionId = await shopify.session.getCurrentId({
+      isOnline: true,
+      rawRequest: req,
+      rawResponse: res,
+    });
+
+    if (!sessionId) {
+      const shop = String(req.query.shop || req.headers['x-shopify-shop-domain'] || '');
+      return res
+        .status(401)
+        .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+        .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth?shop=${encodeURIComponent(shop)}`)
+        .json({ error: 'Unauthorized' });
+    }
+
+    const session = await shopify.config.sessionStorage.loadSession(sessionId);
+    if (!session) {
+      const shop = String(req.query.shop || req.headers['x-shopify-shop-domain'] || '');
+      return res
+        .status(401)
+        .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+        .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth?shop=${encodeURIComponent(shop)}`)
+        .json({ error: 'Unauthorized' });
+    }
 
     const search = String(req.query.search || '');
     const statuses = String(req.query.status || '')
-      .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     const tags = String(req.query.tags || '')
-      .toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+      .toLowerCase()
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
     const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 250);
 
     const admin = new shopify.clients.Rest({ session });
@@ -153,14 +113,10 @@ router.get('/', async (req, res) => {
         console.error('Shopify REST customers error:', status, body);
 
         if (status === 401) {
-          const shop = session.shop || extractShop(req);
           return res
             .status(401)
             .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-            .set(
-              'X-Shopify-API-Request-Failure-Reauthorize-Url',
-              `/api/auth/inline?shop=${encodeURIComponent(shop)}`
-            )
+            .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth?shop=${encodeURIComponent(session.shop)}`)
             .json({ error: 'Reauthorize required' });
         }
         return res.status(500).json({ error: 'Shopify API error', details: body });
