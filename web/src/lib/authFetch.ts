@@ -1,36 +1,23 @@
-// web/src/lib/authFetch.ts
-import createApp from '@shopify/app-bridge';
-import { getSessionToken } from '@shopify/app-bridge-utils';
-
-function getSearchParam(name: string) {
-  return new URLSearchParams(window.location.search).get(name) || '';
-}
-
-const app = createApp({
-  apiKey: import.meta.env.VITE_SHOPIFY_API_KEY,
-  host: getSearchParam('host'),
-  forceRedirect: true,
-});
+import { getToken } from './appBridge';
 
 export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
-  const token = await getSessionToken(app);
+  const token = await getToken().catch(() => null);
 
-  const headers = new Headers(init.headers || {});
-  headers.set('Authorization', `Bearer ${token}`);
+  const headers = new Headers(init.headers as HeadersInit);
+  headers.set('X-Requested-With', 'XMLHttpRequest');
+  if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  const res = await fetch(input, { ...init, headers });
+  const res = await fetch(input, { ...init, headers, credentials: 'include' });
 
-  if (
-    res.status === 401 &&
-    res.headers.get('X-Shopify-API-Request-Failure-Reauthorize') === '1'
-  ) {
-    const shop = getSearchParam('shop');
-    const host = getSearchParam('host');
-    const url = `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}${
-      host ? `${shop ? '&' : '?'}host=${encodeURIComponent(host)}` : ''
-    }`;
-    // top-level redirect so cookies/session are set correctly
-    window.top!.location.href = url;
+  // If server says "reauthorize", do the top-level redirect
+  if (res.status === 401 && res.headers.get('X-Shopify-API-Request-Failure-Reauthorize') === '1') {
+    const params = new URLSearchParams(window.location.search);
+    const shop = params.get('shop') || '';
+    const host = params.get('host') || '';
+    const url = res.headers.get('X-Shopify-API-Request-Failure-Reauthorize-Url')
+      || `/api/auth/inline?shop=${encodeURIComponent(shop)}`;
+    const sep = url.includes('?') ? '&' : '?';
+    (window.top || window).location.href = `${url}${sep}host=${encodeURIComponent(host)}`;
   }
 
   return res;
