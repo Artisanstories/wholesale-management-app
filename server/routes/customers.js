@@ -1,3 +1,4 @@
+// server/routes/customers.js
 const express = require('express');
 const router = express.Router();
 
@@ -38,7 +39,10 @@ function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
 
     const clientShape = toClientCustomer(c);
     const matchS = statuses.length === 0 || statuses.includes(clientShape.status);
-    const matchT = tags.length === 0 || tags.every(t => clientShape.tags.map(x => x.toLowerCase()).includes(t));
+    const matchT =
+      tags.length === 0 ||
+      tags.every(t => clientShape.tags.map(x => x.toLowerCase()).includes(t));
+
     return matchQ && matchS && matchT;
   });
 }
@@ -49,21 +53,38 @@ async function getShopFromAuthHeader(shopify, req) {
     const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length) : '';
     if (!token) return null;
     const payload = await shopify.utils.decodeSessionToken(token);
-    const dest = (payload.dest || '').toString();
+    const dest = (payload.dest || '').toString(); // https://{shop}.myshopify.com
     return dest.replace(/^https?:\/\//, '');
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
+// GET /api/customers
 router.get('/', async (req, res) => {
   const shopify = req.shopify;
 
   try {
+    // ⚠️ Guard: only try to read session if we actually have a JWT
+    const auth = req.headers.authorization || '';
+    if (!auth.startsWith('Bearer ')) {
+      const shop = (req.query.shop || (await getShopFromAuthHeader(shopify, req)) || '').toString();
+      return res
+        .status(401)
+        .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+        .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth?shop=${encodeURIComponent(shop)}`)
+        .json({ error: 'Unauthorized: missing token' });
+    }
+
     const sessionId = await shopify.session.getCurrentId({
       isOnline: true,
       rawRequest: req,
       rawResponse: res,
     });
-    const session = sessionId ? await shopify.config.sessionStorage.loadSession(sessionId) : null;
+
+    const session = sessionId
+      ? await shopify.config.sessionStorage.loadSession(sessionId)
+      : null;
 
     if (!session) {
       const shop = (await getShopFromAuthHeader(shopify, req)) || '';
