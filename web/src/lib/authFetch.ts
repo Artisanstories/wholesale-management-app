@@ -14,7 +14,7 @@ function getApp() {
 }
 
 export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
-  const token = await getSessionToken(getApp());
+  const token = await getSessionToken(getApp()); // JWT
   const headers = new Headers(init.headers || {});
   headers.set('Authorization', `Bearer ${token}`);
   if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
