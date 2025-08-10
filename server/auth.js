@@ -1,6 +1,7 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import { shopify } from "./shopify.js";
+import { injectWholesaleSnippet } from "./routes/theme.js"; // ✅ add this import
 
 const router = express.Router();
 router.use(cookieParser());
@@ -33,6 +34,14 @@ router.get("/auth/callback", async (req, res) => {
       rawRequest: req,
       rawResponse: res
     });
+
+    // ✅ Inject wholesale snippet automatically after install
+    try {
+      await injectWholesaleSnippet(session);
+      console.log(`✅ Wholesale snippet injected for shop: ${session.shop}`);
+    } catch (injectionError) {
+      console.error(`❌ Failed to inject snippet for ${session.shop}`, injectionError);
+    }
 
     // A tiny cookie for your own API routes (Shopify's official session is in Postgres)
     res.cookie(
