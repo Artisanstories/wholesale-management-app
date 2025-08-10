@@ -1,0 +1,27 @@
+{% comment %}
+  This snippet hides prices for non-logged-in customers,
+  and applies wholesale price rules for tagged customers.
+{% endcomment %}
+
+{% if customer %}
+  {% assign discount = 0 %}
+  {% if customer.tags contains 'wholesale-uk' %}
+    {% assign discount = 40 %}
+  {% elsif customer.tags contains 'wholesale-us' %}
+    {% assign discount = 35 %}
+  {% endif %}
+
+  <script>
+    window.WHOLESALE_DISCOUNT = {{ discount }};
+    window.VAT_INCLUDED = {{ shop.metafields.wholesale.vat_toggle | default: false }};
+  </script>
+{% else %}
+  <style>
+    .price, .product-price, .product-form__submit {
+      display: none !important;
+    }
+  </style>
+  <div style="padding: 1rem; text-align: center;">
+    <a href="/account/login" class="button">Login to view wholesale pricing</a>
+  </div>
+{% endif %}
