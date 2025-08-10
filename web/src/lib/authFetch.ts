@@ -1,3 +1,4 @@
+// web/src/lib/authFetch.ts
 import createApp from '@shopify/app-bridge';
 import { getSessionToken } from '@shopify/app-bridge-utils';
 
@@ -12,14 +13,44 @@ function getHost(): string {
   return host;
 }
 
-function shopFromHost(host: string): string {
+function base64UrlDecode(s: string) {
+  // Convert base64url -> base64 then decode
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = s.length % 4;
+  if (pad) s += '='.repeat(4 - pad);
+  return atob(s);
+}
+
+function decodeJwtPayload(token: string): any | null {
   try {
-    const decoded = atob(host); // https://{shop}.myshopify.com/admin
-    const m = decoded.match(/^https?:\/\/([^/]+)/i);
-    return m ? m[1] : '';
+    const [, payload] = token.split('.');
+    if (!payload) return null;
+    return JSON.parse(base64UrlDecode(payload));
+  } catch {
+    return null;
+  }
+}
+
+function hostnameFromUrl(u: string): string {
+  try {
+    return new URL(u).hostname;
   } catch {
     return '';
   }
+}
+
+function deriveShopFromToken(token: string): string {
+  const p = decodeJwtPayload(token);
+  if (!p) return '';
+  // Prefer iss (usually https://{shop}.myshopify.com/admin)
+  const issHost = p.iss ? hostnameFromUrl(p.iss) : '';
+  if (issHost && issHost.endsWith('.myshopify.com')) return issHost;
+
+  // Fallback to dest (sometimes admin.shopify.com, sometimes myshopify)
+  const destHost = p.dest ? hostnameFromUrl(p.dest) : '';
+  if (destHost.endsWith('.myshopify.com')) return destHost;
+
+  return '';
 }
 
 function getApp() {
@@ -45,6 +76,7 @@ async function getTokenWithRetry(retries = 1): Promise<string> {
 
 export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const token = await getTokenWithRetry(1);
+
   const headers = new Headers(init.headers || {});
   headers.set('Authorization', `Bearer ${token}`);
   if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
@@ -59,16 +91,16 @@ export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}
     const url = new URL(headerPath, window.location.origin);
     const params = new URLSearchParams(url.search);
 
-    // If shop missing, derive from host and add
-    if (!params.get('shop')) {
-      const host = getHost();
-      const shop = shopFromHost(host);
-      if (shop) params.set('shop', shop);
-      if (host && !params.get('host')) params.set('host', host);
-      url.search = params.toString();
-    }
+    // Ensure shop & host are present
+    const shopFromToken = deriveShopFromToken(token);
+    if (shopFromToken && !params.get('shop')) params.set('shop', shopFromToken);
 
-    // Top-level redirect so OAuth state cookie can be set
+    const host = getHost();
+    if (host && !params.get('host')) params.set('host', host);
+
+    url.search = params.toString();
+
+    // Top-level redirect so the OAuth state cookie can be set
     (window.top ?? window).location.href = url.toString();
     throw new Error('Reauthorizing…');
   }
