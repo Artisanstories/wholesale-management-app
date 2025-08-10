@@ -12,6 +12,16 @@ function getHost(): string {
   return host;
 }
 
+function shopFromHost(host: string): string {
+  try {
+    const decoded = atob(host); // https://{shop}.myshopify.com/admin
+    const m = decoded.match(/^https?:\/\/([^/]+)/i);
+    return m ? m[1] : '';
+  } catch {
+    return '';
+  }
+}
+
 function getApp() {
   if (app) return app;
   const apiKey = import.meta.env.VITE_SHOPIFY_API_KEY as string | undefined;
@@ -42,15 +52,24 @@ export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}
   const res = await fetch(input, { ...init, headers, credentials: 'include' });
 
   if (res.status === 401) {
-    // Read reauth path from headers (server sends it), default to /api/auth
-    const reauthPath =
-      res.headers.get('X-Shopify-API-Request-Failure-Reauthorize-Url') || '/api/auth';
+    // Build a robust reauth URL
+    const headerPath =
+      res.headers.get('X-Shopify-API-Request-Failure-Reauthorize-Url') || '/api/auth/inline';
 
-    // Compute absolute URL on *our app domain* and pop to the top frame.
-    const absolute = new URL(reauthPath, window.location.origin).toString();
-    // Top-level redirect is REQUIRED so the OAuth state cookie can be set.
-    (window.top ?? window).location.href = absolute;
+    const url = new URL(headerPath, window.location.origin);
+    const params = new URLSearchParams(url.search);
 
+    // If shop missing, derive from host and add
+    if (!params.get('shop')) {
+      const host = getHost();
+      const shop = shopFromHost(host);
+      if (shop) params.set('shop', shop);
+      if (host && !params.get('host')) params.set('host', host);
+      url.search = params.toString();
+    }
+
+    // Top-level redirect so OAuth state cookie can be set
+    (window.top ?? window).location.href = url.toString();
     throw new Error('Reauthorizing…');
   }
 
