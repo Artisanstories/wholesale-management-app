@@ -2,96 +2,71 @@
 const express = require('express');
 const router = express.Router();
 
-/** Try to extract shop domain from Shopify "host" param (base64) */
 function shopFromHostParam(hostParam) {
   try {
     const decoded = Buffer.from(String(hostParam || ''), 'base64').toString('utf8');
-    // hostParam often looks like "storename.myshopify.com/admin"
-    const parts = decoded.replace(/^https?:\/\//, '').split('/');
-    const host = parts[0];
-    return host && host.endsWith('.myshopify.com') ? host : '';
-  } catch {
-    return '';
-  }
-}
-
-/** Best-effort ways to get the shop domain for OAuth */
-function getShopFromReq(req) {
-  const qShop = String(req.query.shop || '');
-  if (qShop.endsWith('.myshopify.com')) return qShop;
-
-  const fromHeader = String(req.headers['x-shopify-shop-domain'] || '');
-  if (fromHeader.endsWith('.myshopify.com')) return fromHeader;
-
-  const fromHost = shopFromHostParam(req.query.host);
-  if (fromHost) return fromHost;
-
-  try {
-    const ref = req.get('referer') || '';
-    const u = new URL(ref);
-    const h = u.searchParams.get('host');
-    const fromRef = shopFromHostParam(h);
-    if (fromRef) return fromRef;
+    // e.g. "admin.shopify.com/store/<shop>/apps"
+    const mStore = decoded.match(/\/store\/([^/?#]+)/i);
+    if (mStore) return `${mStore[1]}.myshopify.com`;
+    // or sometimes "<shop>.myshopify.com/admin"
+    const mShop = decoded.match(/([a-z0-9-]+\.myshopify\.com)/i);
+    if (mShop) return mShop[1];
   } catch {}
-
   return '';
 }
 
-// Start OAuth (top-level redirect)
+function resolveShop(req) {
+  const qShop = String(req.query.shop || '');
+  if (qShop) return qShop;
+  const hdrShop = String(req.headers['x-shopify-shop-domain'] || '');
+  if (hdrShop) return hdrShop;
+  const host = String(req.query.host || '');
+  const fromHost = shopFromHostParam(host);
+  if (fromHost) return fromHost;
+  const ref = String(req.get('referer') || '');
+  const m = ref.match(/shop=([a-z0-9-]+\.myshopify\.com)/i);
+  return m ? m[1] : '';
+}
+
+// Kick off OAuth (works with or without ?host=)
 router.get('/', async (req, res) => {
-  const shop = getShopFromReq(req);
+  const shopify = req.shopify;
+  const shop = resolveShop(req);
   if (!shop) return res.status(400).send('Missing shop');
 
-  await req.shopify.auth.begin({
+  const redirectUrl = await shopify.auth.begin({
     shop,
-    isOnline: true,
     callbackPath: '/api/auth/callback',
+    isOnline: true,
     rawRequest: req,
     rawResponse: res,
   });
+
+  return res.redirect(redirectUrl);
 });
 
-// Start OAuth in-frame (App Bridge calls this)
-router.get('/inline', async (req, res) => {
-  const shop = getShopFromReq(req);
+// Support /api/auth/inline used by App Bridge reauth
+router.get('/inline', (req, res) => {
+  const shop = resolveShop(req);
   if (!shop) return res.status(400).send('Missing shop');
-
-  await req.shopify.auth.begin({
-    shop,
-    isOnline: true,
-    callbackPath: '/api/auth/callback',
-    rawRequest: req,
-    rawResponse: res,
-  });
+  return res.redirect(`/api/auth?shop=${encodeURIComponent(shop)}`);
 });
 
-// Complete OAuth
+// OAuth callback
 router.get('/callback', async (req, res) => {
+  const shopify = req.shopify;
   try {
-    const { session } = await req.shopify.auth.callback({
-      isOnline: true,
+    const { session } = await shopify.auth.callback({
       rawRequest: req,
       rawResponse: res,
     });
-
-    // Send the merchant back into the embedded app with host preserved
     const host = String(req.query.host || '');
-    const redirectUrl = host
-      ? `/?shop=${encodeURIComponent(session.shop)}&host=${encodeURIComponent(host)}`
-      : `/?shop=${encodeURIComponent(session.shop)}`;
-
-    return res.redirect(302, redirectUrl);
+    return res.redirect(
+      `/?shop=${encodeURIComponent(session.shop)}${host ? `&host=${encodeURIComponent(host)}` : ''}`
+    );
   } catch (e) {
     console.error('OAuth callback error:', e);
-    const shop = getShopFromReq(req);
-    return res
-      .status(401)
-      .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-      .set(
-        'X-Shopify-API-Request-Failure-Reauthorize-Url',
-        `/api/auth${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`,
-      )
-      .send('Auth failed. Please reopen the app.');
+    return res.status(401).send('Auth failed');
   }
 });
 
