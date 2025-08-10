@@ -47,7 +47,7 @@ function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
   });
 }
 
-// Helper: extract shop from the JWT so we can reauth
+// Extract shop domain from the JWT (so we can build a reauth URL)
 async function getShopFromAuthHeader(shopify, req) {
   try {
     const hdr = req.headers.authorization || '';
@@ -78,14 +78,14 @@ router.get('/', async (req, res) => {
     }
 
     if (!session) {
-      // No session in memory (after deploy, etc). Tell the client to reauth.
+      // No session in memory (e.g., after a deploy). Tell client to reauth via *inline* pop-out route.
       const shop = (await getShopFromAuthHeader(shopify, req)) || '';
       res
         .status(401)
         .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
         .set(
           'X-Shopify-API-Request-Failure-Reauthorize-Url',
-          `/api/auth?shop=${encodeURIComponent(shop)}`
+          `/api/auth/inline?shop=${encodeURIComponent(shop)}`
         )
         .json({ error: 'Unauthorized: no active session' });
       return;
