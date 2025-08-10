@@ -37,16 +37,12 @@ app.get("/api/products/count", verifyRequest, async (req, res) => {
   }
 });
 
-// Protected GraphQL proxy
+// Protected GraphQL proxy (optional but handy)
 app.post("/api/graphql", verifyRequest, async (req, res) => {
   try {
     const { shop, accessToken } = req.shopifySession;
     const client = new shopify.clients.Graphql({ session: { shop, accessToken } });
-
-    const result = await client.request({
-      data: req.body // { query, variables }
-    });
-
+    const result = await client.request({ data: req.body }); // { query, variables }
     res.json(result.body);
   } catch (e) {
     console.error("GraphQL proxy error:", e);
@@ -54,10 +50,81 @@ app.post("/api/graphql", verifyRequest, async (req, res) => {
   }
 });
 
+// Wholesale preview — filters out zero-price variants & gift cards
+app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
+  try {
+    const { shop, accessToken } = req.shopifySession;
+    const client = new shopify.clients.Rest({ session: { shop, accessToken } });
+
+    const limit = Number(req.query.limit || 50);
+    const discountPct = parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20");
+    const vatPct = parseFloat(process.env.VAT_RATE_PERCENT || "20");
+    const discount = discountPct / 100;
+    const vat = vatPct / 100;
+
+    const result = await client.get({
+      path: "products",
+      query: {
+        limit,
+        fields: "id,title,product_type,status,variants"
+      }
+    });
+
+    const products = result?.body?.products || [];
+
+    const items = products.flatMap((p) => {
+      // Skip gift cards & non-active products
+      if ((p.product_type || "").toLowerCase().includes("gift")) return [];
+      if (p.status && p.status !== "active") return [];
+
+      return (p.variants || []).flatMap((v) => {
+        const retail = Number.parseFloat(v.price);
+        if (!Number.isFinite(retail) || retail <= 0) return []; // drop zero/invalid prices
+
+        const wholesale = +(retail * (1 - discount)).toFixed(2);
+        const retailIncVat = +(retail * (1 + vat)).toFixed(2);
+        const wholesaleIncVat = +(wholesale * (1 + vat)).toFixed(2);
+
+        return [{
+          productId: p.id,
+          productTitle: p.title,
+          variantId: v.id,
+          variantTitle: v.title,
+          retail,
+          wholesale,
+          retailIncVat,
+          wholesaleIncVat
+        }];
+      });
+    });
+
+    res.json({
+      discountPercent: discountPct,
+      vatPercent: vatPct,
+      currency: "GBP",
+      count: items.length,
+      items
+    });
+  } catch (e) {
+    console.error("wholesale/preview error:", e);
+    res.status(500).json({ error: "Failed to load preview" });
+  }
+});
+
 // Serve client
 const clientDist = path.resolve(__dirname, "../web/dist");
 app.use("/assets", express.static(path.join(clientDist, "assets")));
 app.get("/app", (req, res) => {
+  const cookieName = process.env.SESSION_COOKIE_NAME || "app_session";
+  const hasSession = Boolean(req.cookies?.[cookieName]);
+  const shop = req.query.shop;
+
+  if (!hasSession && shop) {
+    return res.redirect(`/api/auth?shop=${encodeURIComponent(shop)}`);
+  }
+  if (!hasSession && !shop) {
+    return res.redirect("/");
+  }
   res.sendFile(path.join(clientDist, "index.html"));
 });
 app.get("/", (req, res) => {
@@ -68,51 +135,3 @@ app.get("/", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
-// Preview products with computed wholesale + VAT
-app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
-  try {
-    const { shop, accessToken } = req.shopifySession;
-    const client = new shopify.clients.Rest({ session: { shop, accessToken } });
-
-    const limit = Number(req.query.limit || 25);
-    const discountPct = parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20");
-    const vatPct = parseFloat(process.env.VAT_RATE_PERCENT || "20");
-    const discount = discountPct / 100;
-    const vat = vatPct / 100;
-
-    // Get a small page of products with variants & prices
-    const result = await client.get({
-      path: "products",
-      query: { limit, fields: "id,title,variants" }
-    });
-
-    const items = (result?.body?.products || []).flatMap((p) => {
-      return (p.variants || []).map((v) => {
-        const retail = parseFloat(v.price);
-        const wholesale = +(retail * (1 - discount)).toFixed(2);
-        const retailIncVat = +(retail * (1 + vat)).toFixed(2);
-        const wholesaleIncVat = +(wholesale * (1 + vat)).toFixed(2);
-        return {
-          productId: p.id,
-          productTitle: p.title,
-          variantId: v.id,
-          variantTitle: v.title,
-          retail,
-          wholesale,
-          retailIncVat,
-          wholesaleIncVat
-        };
-      });
-    });
-
-    res.json({
-      discountPercent: discountPct,
-      vatPercent: vatPct,
-      currency: "GBP", // simple display hint; adjust later if needed
-      items
-    });
-  } catch (e) {
-    console.error("wholesale/preview error:", e);
-    res.status(500).json({ error: "Failed to load preview" });
-  }
-});
