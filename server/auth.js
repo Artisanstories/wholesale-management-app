@@ -11,7 +11,7 @@ router.get('/auth', async (req, res) => {
 
     await shopify.auth.begin({
       shop,
-      callbackPath: '/api/auth/callback', // must include /api because of server mount
+      callbackPath: '/api/auth/callback', // must match mount + Partner redirect URL
       isOnline: true,
       rawRequest: req,
       rawResponse: res
@@ -31,7 +31,7 @@ router.get('/auth/callback', async (req, res) => {
       rawResponse: res
     });
 
-    // TODO: persist the session (DB/Redis). Memory is fine for dev.
+    // TODO: persist session (DB/Redis) if you need it beyond memory
 
     const host = (req.query.host || '').toString();
     return res.redirect(`/?shop=${encodeURIComponent(session.shop)}${host ? `&host=${encodeURIComponent(host)}` : ''}`);
