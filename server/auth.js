@@ -1,9 +1,8 @@
 // server/auth.js
-import express from "express";
-import cookieParser from "cookie-parser";
-import { shopify } from "./shopify.js";
-import { injectWholesaleSnippet } from "./routes/theme.js"; 
-import { removeWholesaleSnippet } from "./routes/webhooks.js";
+const express = require("express");
+const cookieParser = require("cookie-parser");
+const { shopify } = require("./shopify-config");
+const { injectWholesaleSnippet } = require("./routes/theme");
 
 const router = express.Router();
 router.use(cookieParser());
@@ -19,7 +18,7 @@ router.get("/auth", async (req, res) => {
       callbackPath: "/api/auth/callback",
       isOnline: false,
       rawRequest: req,
-      rawResponse: res
+      rawResponse: res,
     });
   } catch (e) {
     console.error("Auth begin error:", e);
@@ -32,10 +31,10 @@ router.get("/auth/callback", async (req, res) => {
   try {
     const { session } = await shopify.auth.callback({
       rawRequest: req,
-      rawResponse: res
+      rawResponse: res,
     });
 
-    // ✅ Inject wholesale snippet automatically after install
+    // Inject wholesale snippet after install
     try {
       await injectWholesaleSnippet(session);
       console.log(`✅ Wholesale snippet injected for shop: ${session.shop}`);
@@ -43,31 +42,31 @@ router.get("/auth/callback", async (req, res) => {
       console.error(`❌ Failed to inject snippet for ${session.shop}`, injectionError);
     }
 
-    // ✅ Register uninstall webhook
+    // Register uninstall webhook
     try {
       await shopify.webhooks.register({
         session,
         deliveryMethod: shopify.webhooks.DeliveryMethod.Http,
         callbackUrl: "/api/webhooks/uninstalled",
-        topic: "APP_UNINSTALLED"
+        topic: "APP_UNINSTALLED",
       });
       console.log(`✅ Uninstall webhook registered for shop: ${session.shop}`);
     } catch (webhookError) {
       console.error(`❌ Failed to register uninstall webhook for ${session.shop}`, webhookError);
     }
 
-    // Store a lightweight cookie for your API routes
+    // Light cookie for your own API routes
     res.cookie(
       process.env.SESSION_COOKIE_NAME || "app_session",
       JSON.stringify({
         shop: session.shop,
-        accessToken: session.accessToken
+        accessToken: session.accessToken,
       }),
       {
         httpOnly: true,
         secure: true,
-        sameSite: "none", // embedded app inside iframe
-        path: "/"
+        sameSite: "none",
+        path: "/",
       }
     );
 
@@ -83,4 +82,4 @@ router.get("/auth/callback", async (req, res) => {
   }
 });
 
-export default router;
+module.exports = router;
