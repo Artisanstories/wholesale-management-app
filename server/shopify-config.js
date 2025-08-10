@@ -1,19 +1,12 @@
-// server/shopify-config.js
-require("@shopify/shopify-api/adapters/node"); // MUST be first
+import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
+import { MemorySessionStorage } from "@shopify/shopify-api/session-storage/memory.js"; // ✅ updated
 
-const { shopifyApi, LATEST_API_VERSION } = require("@shopify/shopify-api");
-const { MemorySessionStorage } = require("@shopify/shopify-api/session-storage/memory");
-
-const shopify = shopifyApi({
+export const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
-  scopes: (process.env.SCOPES || "read_customers,read_products").split(","),
-  hostName: (process.env.SHOPIFY_APP_URL || "")
-    .replace(/^https?:\/\//, "")
-    .replace(/\/$/, ""),
+  scopes: process.env.SCOPES.split(","),
+  hostName: process.env.HOST.replace(/https?:\/\//, ""),
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
-  sessionStorage: new MemorySessionStorage()
+  sessionStorage: new MemorySessionStorage(),
 });
-
-module.exports = { shopify };
