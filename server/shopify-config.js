@@ -1,26 +1,25 @@
 // server/shopify-config.js
-require("@shopify/shopify-api/adapters/node"); // MUST be first
+require('dotenv').config();
 
-const { shopifyApi, LATEST_API_VERSION } = require("@shopify/shopify-api");
-// IMPORTANT: use the .js subpath with newer @shopify/shopify-api
-const { MemorySessionStorage } = require("@shopify/shopify-api/session-storage/memory.js");
+async function initShopify() {
+  // Load ESM modules via dynamic import
+  const { shopifyApi, LATEST_API_VERSION } = await import('@shopify/shopify-api');
+  const { MemorySessionStorage } = await import('@shopify/shopify-api/session-storage/memory');
 
-const hostName = (process.env.SHOPIFY_APP_URL || process.env.HOST || "")
-  .replace(/^https?:\/\//, "")
-  .replace(/\/$/, "");
+  const host = process.env.HOST || '';
+  const hostName = host.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-const scopes =
-  (process.env.SCOPES && process.env.SCOPES.split(",").map(s => s.trim())) ||
-  ["read_customers", "read_products"];
+  const shopify = shopifyApi({
+    apiKey: process.env.SHOPIFY_API_KEY,
+    apiSecretKey: process.env.SHOPIFY_API_SECRET,
+    scopes: (process.env.SCOPES || '').split(',').map(s => s.trim()).filter(Boolean),
+    hostName,
+    apiVersion: LATEST_API_VERSION,
+    isEmbeddedApp: true,
+    sessionStorage: new MemorySessionStorage(), // ✅ correct subpath
+  });
 
-const shopify = shopifyApi({
-  apiKey: process.env.SHOPIFY_API_KEY,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET,
-  scopes,
-  hostName,
-  apiVersion: LATEST_API_VERSION,
-  isEmbeddedApp: true,
-  sessionStorage: new MemorySessionStorage(), // OK for dev
-});
+  return shopify;
+}
 
-module.exports = { shopify };
+module.exports = { initShopify };
