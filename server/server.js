@@ -40,37 +40,51 @@ const authRouter = require('./auth');
   // ----- Auth routes -----
   app.use('/api/auth', authRouter);
 
-  // Ensure-auth used by the frontend on mount.
-  // IMPORTANT: Skip getCurrentId() if there's no Bearer token to avoid noisy logs.
+  // Helper to extract shop from JWT or query
+  async function getShopFromReq(req) {
+    const auth = req.headers.authorization || '';
+    if (auth.startsWith('Bearer ')) {
+      try {
+        const payload = await shopify.utils.decodeSessionToken(auth.slice('Bearer '.length));
+        const dest = (payload.dest || '').toString();
+        return dest.replace(/^https?:\/\//, '');
+      } catch {
+        // fall through to query param
+      }
+    }
+    return (req.query.shop || '').toString();
+  }
+
+  // Ensure-auth used by the frontend on mount (JWT-based; no cookies required)
   app.get('/api/ensure-auth', async (req, res) => {
     try {
       const auth = req.headers.authorization || '';
+      const shop = await getShopFromReq(req);
+
       if (!auth.startsWith('Bearer ')) {
-        const shop = (req.query.shop || '').toString();
         return res
           .status(401)
           .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
           .set(
             'X-Shopify-API-Request-Failure-Reauthorize-Url',
-            `/api/auth?shop=${encodeURIComponent(shop)}`
+            `/api/auth/inline?shop=${encodeURIComponent(shop)}`
           )
           .send('Unauthorized');
       }
 
-      const sessionId = await shopify.session.getCurrentId({
-        isOnline: true,
-        rawRequest: req,
-        rawResponse: res,
-      });
+      // Decode JWT and load the online session bound to this user/shop
+      const payload = await shopify.utils.decodeSessionToken(auth.slice('Bearer '.length));
+      const jwtShop = (payload.dest || '').toString().replace(/^https?:\/\//, '');
+      const jwtSessionId = shopify.session.getJwtSessionId(jwtShop, payload.sub);
+      const session = await shopify.config.sessionStorage.loadSession(jwtSessionId);
 
-      if (!sessionId) {
-        const shop = (req.query.shop || '').toString();
+      if (!session) {
         return res
           .status(401)
           .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
           .set(
             'X-Shopify-API-Request-Failure-Reauthorize-Url',
-            `/api/auth?shop=${encodeURIComponent(shop)}`
+            `/api/auth/inline?shop=${encodeURIComponent(jwtShop || shop)}`
           )
           .send('Unauthorized');
       }
