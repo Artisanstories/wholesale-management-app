@@ -1,8 +1,6 @@
-// server/auth.js
 const express = require('express');
 const router = express.Router();
 
-// Start OAuth: GET /api/auth?shop={shop}.myshopify.com
 router.get('/auth', async (req, res) => {
   try {
     const shopify = req.shopify;
@@ -11,7 +9,7 @@ router.get('/auth', async (req, res) => {
 
     await shopify.auth.begin({
       shop,
-      callbackPath: '/api/auth/callback', // must match mount + Partner redirect URL
+      callbackPath: '/api/auth/callback',
       isOnline: true,
       rawRequest: req,
       rawResponse: res
@@ -22,7 +20,6 @@ router.get('/auth', async (req, res) => {
   }
 });
 
-// OAuth callback: GET /api/auth/callback
 router.get('/auth/callback', async (req, res) => {
   try {
     const shopify = req.shopify;
@@ -30,8 +27,6 @@ router.get('/auth/callback', async (req, res) => {
       rawRequest: req,
       rawResponse: res
     });
-
-    // TODO: persist session (DB/Redis) if you need it beyond memory
 
     const host = (req.query.host || '').toString();
     return res.redirect(`/?shop=${encodeURIComponent(session.shop)}${host ? `&host=${encodeURIComponent(host)}` : ''}`);
