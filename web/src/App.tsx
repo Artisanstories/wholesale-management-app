@@ -8,14 +8,38 @@ import {
   InlineStack,
   Checkbox,
   TextField,
+  Divider,
+  Badge,
+  ResourceList,
+  ResourceItem,
 } from "@shopify/polaris";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+type Rule = { tag: string; discountPercent: number };
+type Customer = { id: string; email: string; name: string; tags: string[] };
 
 export default function App() {
-  // Demo bits
+  // Demo
   const [count, setCount] = useState(0);
 
-  // Preview table
+  // Base settings
+  const [discountInput, setDiscountInput] = useState<string>("");
+  const [vatInput, setVatInput] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
+
+  // Tag rules
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [newRuleTag, setNewRuleTag] = useState("");
+  const [newRuleDiscount, setNewRuleDiscount] = useState("");
+
+  // Customer search / selection
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<Customer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+
+  // Preview
   const [rows, setRows] = useState<string[][]>([]);
   const [loading, setLoading] = useState(false);
   const [showVat, setShowVat] = useState(false);
@@ -23,15 +47,9 @@ export default function App() {
   const [discount, setDiscount] = useState<number | null>(null);
   const [total, setTotal] = useState<number | null>(null);
 
-  // Settings
-  const [discountInput, setDiscountInput] = useState<string>("");
-  const [vatInput, setVatInput] = useState<string>("");
-  const [saving, setSaving] = useState(false);
-  const [saveNote, setSaveNote] = useState<string | null>(null);
-
-  // Load settings on mount
   useEffect(() => {
     loadSettings();
+    loadRules();
   }, []);
 
   async function loadSettings() {
@@ -42,7 +60,7 @@ export default function App() {
       const v = typeof data.vatPercent === "number" ? data.vatPercent : 20;
       setDiscountInput(String(d));
       setVatInput(String(v));
-      setDiscount(d); // show in header
+      setDiscount(d);
     } catch (e) {
       console.error("Failed to load settings", e);
     }
@@ -71,7 +89,6 @@ export default function App() {
       const data = await res.json();
       setDiscount(data.discountPercent);
       setSaveNote("Saved!");
-      // Optionally refresh preview
       if (rows.length) await loadWholesalePreview();
     } catch (e) {
       console.error(e);
@@ -80,6 +97,78 @@ export default function App() {
       setSaving(false);
       setTimeout(() => setSaveNote(null), 2500);
     }
+  }
+
+  async function loadRules() {
+    try {
+      const res = await fetch("/api/rules");
+      const data = await res.json();
+      setRules(data.rules || []);
+    } catch (e) {
+      console.error("Failed to load rules", e);
+    }
+  }
+
+  async function addRule() {
+    const tag = newRuleTag.trim().toLowerCase();
+    const d = parseFloat(newRuleDiscount);
+    if (!tag) return alert("Enter a tag");
+    if (!Number.isFinite(d) || d < 0 || d > 100) {
+      return alert("Discount must be 0-100");
+    }
+    try {
+      const res = await fetch("/api/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag, discountPercent: d }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to save rule");
+      setRules(data.rules || []);
+      setNewRuleTag("");
+      setNewRuleDiscount("");
+      // Optional: refresh preview if customer selected
+      if (selectedCustomer) await loadWholesalePreview();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save rule");
+    }
+  }
+
+  async function removeRule(tag: string) {
+    if (!confirm(`Delete rule for tag "${tag}"?`)) return;
+    try {
+      const res = await fetch(`/api/rules/${encodeURIComponent(tag)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Delete failed");
+      setRules(data.rules || []);
+      if (selectedCustomer) await loadWholesalePreview();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete rule");
+    }
+  }
+
+  async function searchCustomers() {
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setResults(data.customers || []);
+    } catch (e) {
+      console.error(e);
+      alert("Search failed");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function chooseCustomer(c: Customer) {
+    setSelectedCustomer(c);
+    // refresh preview to use this customer's tag discount
+    await loadWholesalePreview(c.id);
   }
 
   async function checkProducts() {
@@ -99,10 +188,14 @@ export default function App() {
     }
   }
 
-  async function loadWholesalePreview() {
+  async function loadWholesalePreview(customerId?: string) {
     setLoading(true);
     try {
-      const res = await fetch(`/api/wholesale/preview?limit=50`);
+      const qs = new URLSearchParams({ limit: "50" });
+      if (customerId || selectedCustomer?.id) {
+        qs.set("customerId", String(customerId || selectedCustomer?.id));
+      }
+      const res = await fetch(`/api/wholesale/preview?${qs.toString()}`);
       const data = await res.json();
 
       setCurrency(data.currency || "GBP");
@@ -121,6 +214,16 @@ export default function App() {
           fmt(wholesale, data.currency || "GBP"),
         ];
       });
+
+      // If API returned customer payload, sync selection (useful when called with ID)
+      if (data.customer) {
+        setSelectedCustomer({
+          id: String(data.customer.id),
+          email: data.customer.email || "",
+          name: data.customer.name || "",
+          tags: data.customer.tags || [],
+        });
+      }
 
       setRows(table);
     } catch (e) {
@@ -142,18 +245,19 @@ export default function App() {
     window.open(url, "_blank");
   }
 
+  const selectedCustomerTags = useMemo(
+    () => (selectedCustomer?.tags || []).map((t) => t.trim()).filter(Boolean),
+    [selectedCustomer]
+  );
+
   return (
     <Page title="Wholesale Dashboard">
       <Box padding="400" className="space-y-6">
         {/* Demo card */}
         <Card roundedAbove="sm">
           <Box padding="400" className="space-y-4">
-            <Text as="h2" variant="headingLg">
-              Welcome 👋
-            </Text>
-            <p className="text-sm">
-              Tailwind + Polaris are working. Try the protected endpoint:
-            </p>
+            <Text as="h2" variant="headingLg">Welcome 👋</Text>
+            <p className="text-sm">Tailwind + Polaris are working. Try the protected endpoint:</p>
             <div className="flex gap-2">
               <Button onClick={checkProducts}>Get product count</Button>
               <Button tone="success" onClick={() => setCount((c) => c + 1)}>
@@ -163,15 +267,13 @@ export default function App() {
           </Box>
         </Card>
 
-        {/* Settings card */}
+        {/* Settings */}
         <Card roundedAbove="sm">
           <Box padding="400" className="space-y-4">
-            <Text as="h2" variant="headingLg">
-              Settings
-            </Text>
+            <Text as="h2" variant="headingLg">Settings</Text>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <TextField
-                label="Wholesale discount (%)"
+                label="Base wholesale discount (%)"
                 type="number"
                 value={discountInput}
                 onChange={(v) => setDiscountInput(v)}
@@ -191,63 +293,77 @@ export default function App() {
                 max={100}
               />
               <div className="flex items-end">
-                <Button onClick={saveSettings} loading={saving}>
-                  Save
-                </Button>
-                {saveNote && (
-                  <span className="ml-3 text-xs text-gray-500">{saveNote}</span>
-                )}
+                <Button onClick={saveSettings} loading={saving}>Save</Button>
+                {saveNote && <span className="ml-3 text-xs text-gray-500">{saveNote}</span>}
               </div>
             </div>
             <Text tone="subdued" as="p" variant="bodySm">
-              These values are saved per shop in your database and used by the
-              preview and exports.
+              Base settings apply to everyone unless a tag rule overrides the discount.
             </Text>
           </Box>
         </Card>
 
-        {/* Preview card */}
+        {/* Tag Rules */}
         <Card roundedAbove="sm">
-          <Box padding="400" className="space-y-3">
+          <Box padding="400" className="space-y-4">
             <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingLg">
-                Wholesale price preview
+              <Text as="h2" variant="headingLg">Tag rules</Text>
+              <Text tone="subdued" variant="bodySm" as="span">
+                Highest matching tag discount wins.
               </Text>
-              <InlineStack gap="400" blockAlign="center">
-                {discount !== null && (
-                  <Text as="span" variant="bodySm" tone="subdued">
-                    Discount: {discount}% • Currency: {currency}
-                    {total !== null ? ` • Rows: ${total}` : ""}
-                  </Text>
-                )}
-                <Checkbox
-                  label="Show VAT"
-                  checked={showVat}
-                  onChange={(checked) => toggleVat(checked)}
-                />
-                <Button loading={loading} onClick={loadWholesalePreview}>
-                  {loading ? "Loading…" : "Load preview"}
-                </Button>
-                <Button variant="secondary" onClick={exportCsv}>
-                  Export CSV
-                </Button>
-              </InlineStack>
             </InlineStack>
 
-            <DataTable
-              columnContentTypes={["text", "text", "numeric", "numeric"]}
-              headings={[
-                "Product",
-                "Variant",
-                `Retail (${currency})`,
-                `Wholesale (${currency})`,
-              ]}
-              rows={rows}
-              stickyHeader
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <TextField
+                label="Customer tag"
+                value={newRuleTag}
+                onChange={setNewRuleTag}
+                autoComplete="off"
+                placeholder="e.g. wholesale-vip"
+              />
+              <TextField
+                label="Discount (%)"
+                type="number"
+                value={newRuleDiscount}
+                onChange={setNewRuleDiscount}
+                autoComplete="off"
+                suffix="%"
+                min={0}
+                max={100}
+              />
+              <div className="flex items-end">
+                <Button onClick={addRule}>Add / Update Rule</Button>
+              </div>
+            </div>
+
+            <Divider />
+
+            <ResourceList
+              resourceName={{ singular: "rule", plural: "rules" }}
+              items={rules}
+              renderItem={(item) => {
+                const { tag, discountPercent } = item;
+                return (
+                  <ResourceItem id={tag} accessibilityLabel={`Tag ${tag}`}>
+                    <InlineStack align="space-between" blockAlign="center">
+                      <div>
+                        <Text as="h3" variant="headingSm">{tag}</Text>
+                        <Text tone="subdued" as="p" variant="bodySm">
+                          Discount: {discountPercent}%</Text>
+                      </div>
+                      <Button variant="secondary" tone="critical" onClick={() => removeRule(tag)}>
+                        Delete
+                      </Button>
+                    </InlineStack>
+                  </ResourceItem>
+                );
+              }}
             />
           </Box>
         </Card>
-      </Box>
-    </Page>
-  );
-}
+
+        {/* Customer picker */}
+        <Card roundedAbove="sm">
+          <Box padding="400" className="space-y-4">
+            <Text as="h2" variant="headingLg">Preview as customer</Text>
+           
