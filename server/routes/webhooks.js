@@ -1,10 +1,11 @@
+// server/routes/webhooks.js
 import express from "express";
 import { shopify } from "../shopify.js";
 
 const router = express.Router();
 
 /**
- * Removes the wholesale snippet from the theme when the app is uninstalled.
+ * Removes the wholesale snippet and snippet reference from the theme.
  * @param {Session} session
  */
 export async function removeWholesaleSnippet(session) {
@@ -29,7 +30,7 @@ export async function removeWholesaleSnippet(session) {
     });
     let themeContent = themeLiquidResp.body.asset.value;
 
-    // 4️⃣ Remove include line if present
+    // 4️⃣ Remove snippet include line if it exists
     if (themeContent.includes("{% include 'wholesale-pricing' %}")) {
       themeContent = themeContent.replace("{% include 'wholesale-pricing' %}", "");
 
@@ -44,22 +45,25 @@ export async function removeWholesaleSnippet(session) {
         type: "application/json"
       });
     }
+
     console.log(`✅ Wholesale snippet removed for shop ${session.shop}`);
   } catch (err) {
     console.error(`❌ Error removing wholesale snippet for ${session.shop}`, err);
   }
 }
 
-// Shopify webhook endpoint
+/**
+ * Webhook endpoint to handle app uninstallation
+ */
 router.post("/uninstalled", async (req, res) => {
   try {
     const shop = req.headers["x-shopify-shop-domain"];
     if (!shop) return res.sendStatus(400);
 
-    // Load offline session for the shop
+    // Load the offline session for this shop
     const session = await shopify.config.sessionStorage.loadSessionForShop(shop);
     if (!session) {
-      console.warn(`⚠ No session found for shop ${shop}, skipping cleanup`);
+      console.warn(`⚠ No session found for shop ${shop}, skipping snippet cleanup`);
       return res.sendStatus(200);
     }
 
