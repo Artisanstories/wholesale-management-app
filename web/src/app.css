@@ -1,5 +1,3 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Polaris font smoothing tweaks can live here if needed */
+/* you can style later; this prevents missing-file errors */
+html, body, #root { height: 100%; }
+body { margin: 0; background: #fafafa; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; }
