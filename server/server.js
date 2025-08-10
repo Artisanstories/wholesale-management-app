@@ -1,183 +1,87 @@
-// server/routes/customers.js
+// server/server.js
+require('dotenv').config();
+require('@shopify/shopify-api/adapters/node'); // must be first
+
 const express = require('express');
-const router = express.Router();
+const cookieParser = require('cookie-parser');
+const path = require('path');
 
-const TAGS = {
-  approved: ['wholesale-approved', 'approved', 'wholesale'],
-  pending: ['wholesale-pending', 'pending'],
-  rejected: ['wholesale-rejected', 'rejected'],
-};
+const { initShopify } = require('./shopify-config');
+const customersRoute = require('./routes/customers');
+const authRouter = require('./auth');
 
-function mapStatusFromCustomer(c) {
-  const tagList = (c.tags || '').split(',').map(t => t.trim().toLowerCase());
-  if (tagList.some(t => TAGS.approved.includes(t))) return 'approved';
-  if (tagList.some(t => TAGS.rejected.includes(t))) return 'rejected';
-  if (tagList.some(t => TAGS.pending.includes(t))) return 'pending';
-  return 'pending';
-}
+(async () => {
+  const app = express();
 
-function toClientCustomer(c) {
-  return {
-    id: String(c.id),
-    name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || 'Customer',
-    email: c.email || '',
-    company: c.default_address?.company || c.note || '',
-    tags: (c.tags || '').split(',').map(t => t.trim()).filter(Boolean),
-    status: mapStatusFromCustomer(c),
-    createdAt: c.created_at,
-  };
-}
+  // Render is behind a proxy
+  app.set('trust proxy', 1);
 
-function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
-  const q = search.trim().toLowerCase();
-  return list.filter(c => {
-    const matchQ =
-      !q ||
-      [c.first_name, c.last_name, c.email, c.default_address?.company, c.note]
-        .filter(Boolean)
-        .some(v => String(v).toLowerCase().includes(q));
+  app.use(cookieParser());
+  app.use(express.json());
 
-    const clientShape = toClientCustomer(c);
-    const matchS = statuses.length === 0 || statuses.includes(clientShape.status);
-    const matchT =
-      tags.length === 0 ||
-      tags.every(t => clientShape.tags.map(x => x.toLowerCase()).includes(t));
+  // Health check (set Render -> Health Check Path = /api/health)
+  app.get('/api/health', (_req, res) => res.status(200).send('ok'));
 
-    return matchQ && matchS && matchT;
+  const shopify = initShopify();
+
+  // Expose SDK to routes
+  app.use((req, _res, next) => {
+    req.shopify = shopify;
+    next();
   });
-}
 
-// --- same robust shop extractor as server.js -------------------------------
-function extractShop(req) {
-  const qShop = (req.query.shop || '').toString().trim();
-  if (qShop) return qShop;
+  // Auth
+  app.use('/api/auth', authRouter);
 
-  const hdr = (req.headers['x-shopify-shop-domain'] || '').toString().trim();
-  if (hdr) return hdr;
-
-  const host = (req.query.host || '').toString().trim();
-  if (host) {
+  // Used by frontend on mount to verify session. Do NOT decode JWT yourself.
+  app.get('/api/ensure-auth', async (req, res) => {
     try {
-      const decoded = Buffer.from(host, 'base64').toString('utf8');
-      const m1 = decoded.match(/([a-z0-9-]+\.myshopify\.com)/i);
-      if (m1) return m1[1];
-      const m2 = decoded.match(/\/store\/([^/?#]+)/i);
-      if (m2) return `${m2[1]}.myshopify.com`;
-    } catch {}
-  }
+      const sessionId = await shopify.session.getCurrentId({
+        isOnline: true,
+        rawRequest: req,
+        rawResponse: res,
+      });
 
-  const referer = (req.headers.referer || '').toString();
-  try {
-    const u = new URL(referer);
-    const refShop = u.searchParams.get('shop');
-    if (refShop) return refShop;
-  } catch {}
-
-  return '';
-}
-// --------------------------------------------------------------------------
-
-/** Load the **online** session using v7 helpers. */
-async function loadOnlineSession(shopify, req, res) {
-  const sessionId = await shopify.session.getCurrentId({
-    isOnline: true,
-    rawRequest: req,
-    rawResponse: res,
-  });
-
-  if (!sessionId) {
-    const shop = extractShop(req);
-    res
-      .status(401)
-      .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-      .set(
-        'X-Shopify-API-Request-Failure-Reauthorize-Url',
-        `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
-      )
-      .json({ error: 'Unauthorized: no session id' });
-    return null;
-  }
-
-  const session = await shopify.config.sessionStorage.loadSession(sessionId);
-  if (!session) {
-    const shop = extractShop(req);
-    res
-      .status(401)
-      .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-      .set(
-        'X-Shopify-API-Request-Failure-Reauthorize-Url',
-        `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
-      )
-      .json({ error: 'Unauthorized: session not found' });
-    return null;
-  }
-
-  return session;
-}
-
-router.get('/', async (req, res) => {
-  const shopify = req.shopify;
-
-  try {
-    const session = await loadOnlineSession(shopify, req, res);
-    if (!session) return; // 401 already sent
-
-    const search = String(req.query.search || '');
-    const statuses = String(req.query.status || '')
-      .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    const tags = String(req.query.tags || '')
-      .toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
-    const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 250);
-
-    const admin = new shopify.clients.Rest({ session });
-
-    let collected = [];
-    let pageInfo;
-    let pagesFetched = 0;
-    const maxPages = 2;
-
-    do {
-      let resp;
-      try {
-        resp = await admin.get({
-          path: 'customers',
-          query: {
-            limit,
-            fields: 'id,first_name,last_name,email,created_at,note,tags,default_address',
-            page_info: pageInfo?.nextPage?.query?.page_info,
-          },
-        });
-      } catch (apiErr) {
-        const status = apiErr?.response?.code || apiErr?.status || 500;
-        const body = apiErr?.response?.body || apiErr?.message;
-        console.error('Shopify REST customers error:', status, body);
-
-        if (status === 401) {
-          const shop = session.shop || extractShop(req);
-          return res
-            .status(401)
-            .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-            .set(
-              'X-Shopify-API-Request-Failure-Reauthorize-Url',
-              `/api/auth/inline?shop=${encodeURIComponent(shop)}`
-            )
-            .json({ error: 'Reauthorize required' });
-        }
-        return res.status(500).json({ error: 'Shopify API error', details: body });
+      if (!sessionId) {
+        const shop =
+          String(req.query.shop || req.headers['x-shopify-shop-domain'] || '');
+        return res
+          .status(401)
+          .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+          .set(
+            'X-Shopify-API-Request-Failure-Reauthorize-Url',
+            `/api/auth?shop=${encodeURIComponent(shop)}`
+          )
+          .send('Unauthorized');
       }
 
-      const items = Array.isArray(resp?.body?.customers) ? resp.body.customers : [];
-      collected.push(...filterCustomers(items, { search, statuses, tags }));
+      return res.status(204).end();
+    } catch (e) {
+      console.error('ensure-auth error', e);
+      return res.status(401).send('Unauthorized');
+    }
+  });
 
-      pageInfo = resp.pageInfo;
-      pagesFetched += 1;
-    } while (pageInfo?.nextPage && pagesFetched < maxPages);
+  // API routes
+  app.use('/api/customers', customersRoute);
 
-    return res.json(collected.map(toClientCustomer));
-  } catch (err) {
-    console.error('/api/customers fatal error:', err);
-    return res.status(500).json({ error: 'Failed to load customers' });
-  }
-});
+  // Global error handler
+  app.use((err, _req, res, _next) => {
+    console.error('Unhandled error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  });
 
-module.exports = router;
+  // Static frontend
+  const distDir = path.join(__dirname, '..', 'web', 'dist');
+  app.use(express.static(distDir));
+  app.get('*', (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
+
+  const PORT = process.env.PORT || 3000;
+  const server = app.listen(PORT, () => console.log(`Server running on :${PORT}`));
+
+  server.keepAliveTimeout = 61_000;
+  server.headersTimeout = 65_000;
+
+  process.on('SIGINT', () => server.close(() => process.exit(0)));
+  process.on('SIGTERM', () => server.close(() => process.exit(0)));
+})();
