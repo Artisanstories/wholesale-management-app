@@ -8,7 +8,7 @@ import {
   Badge,
   Spinner,
   EmptyState,
-  Stack,
+  InlineStack, // ✅ v12 replacement for Stack
 } from "@shopify/polaris";
 
 type Customer = {
@@ -21,10 +21,11 @@ type Customer = {
   createdAt: string;
 };
 
-const statusOptions: { label: string; value: Customer["status"]; color: "warning" | "success" | "critical" }[] = [
-  { label: "Pending", value: "pending", color: "warning" },
-  { label: "Approved", value: "approved", color: "success" },
-  { label: "Rejected", value: "rejected", color: "critical" },
+// We'll use Badge "tone" in v12 instead of the old "status"
+const statusOptions: { label: string; value: Customer["status"]; tone?: "success" | "critical" | "warning" }[] = [
+  { label: "Pending", value: "pending", tone: "warning" },
+  { label: "Approved", value: "approved", tone: "success" },
+  { label: "Rejected", value: "rejected", tone: "critical" },
 ];
 
 export default function App() {
@@ -80,33 +81,37 @@ export default function App() {
       <Layout>
         <Layout.Section>
           <Card sectioned>
-            <Stack spacing="tight" wrap>
-              <TextField
-                label="Search customers"
-                labelHidden
-                placeholder="Search by name, email, company..."
-                value={search}
-                onChange={setSearch}
-                autoComplete="off"
-              />
-              <Button onClick={fetchCustomers} primary>Search</Button>
+            <InlineStack gap="200" wrap align="start" blockAlign="center">
+              <div style={{ minWidth: 260, maxWidth: 480, flex: "1 1 auto" }}>
+                <TextField
+                  label="Search customers"
+                  labelHidden
+                  placeholder="Search by name, email, company..."
+                  value={search}
+                  onChange={setSearch}
+                  autoComplete="off"
+                />
+              </div>
+              <Button onClick={fetchCustomers} variant="primary">
+                Search
+              </Button>
               <Button onClick={resetFilters}>Reset</Button>
-            </Stack>
+            </InlineStack>
           </Card>
 
           <Card sectioned>
-            <Stack spacing="tight" wrap>
-              {statusOptions.map((opt) => (
-                <Badge
-                  key={opt.value}
-                  status={opt.color}
-                  onClick={() => toggleStatus(opt.value)}
-                  tone={activeStatuses.includes(opt.value) ? "success" : undefined}
-                >
-                  {opt.label}
-                </Badge>
-              ))}
-            </Stack>
+            <InlineStack gap="200" wrap>
+              {statusOptions.map((opt) => {
+                const active = activeStatuses.includes(opt.value);
+                return (
+                  <div key={opt.value} onClick={() => toggleStatus(opt.value)} style={{ cursor: "pointer" }}>
+                    <Badge tone={active ? opt.tone : undefined}>
+                      {opt.label}
+                    </Badge>
+                  </div>
+                );
+              })}
+            </InlineStack>
           </Card>
 
           {loading ? (
