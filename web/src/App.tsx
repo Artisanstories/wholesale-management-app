@@ -3,8 +3,13 @@ import { authFetch } from './lib/authFetch';
 import '@shopify/polaris/build/esm/styles.css';
 
 type ClientCustomer = {
-  id: string; name: string; email: string; company: string;
-  tags: string[]; status: 'pending' | 'approved' | 'rejected'; createdAt: string;
+  id: string;
+  name: string;
+  email: string;
+  company: string;
+  tags: string[];
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
 };
 
 const STATUS_ORDER: Array<ClientCustomer['status']> = ['pending', 'approved', 'rejected'];
@@ -15,24 +20,18 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<ClientCustomer[]>([]);
+
   const statusParam = useMemo(() => activeStatuses.join(','), [activeStatuses]);
 
-  // 🔐 Trigger OAuth immediately if needed
+  // (1) ensure auth as soon as the app mounts (will bounce to OAuth if needed)
   useEffect(() => {
     (async () => {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const host = params.get('host') || '';
-        const shop = params.get('shop') || '';
-        const url = new URL('/api/ensure-auth', window.location.origin);
-        if (host) url.searchParams.set('host', host);
-        if (shop) url.searchParams.set('shop', shop);
-        await authFetch(url.toString());
+        await authFetch('/api/ensure-auth', { method: 'GET' });
       } catch {
-        // redirected for auth
+        // We'll be redirected for OAuth; nothing else to do here.
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function load() {
@@ -59,10 +58,14 @@ export default function App() {
     }
   }
 
-  useEffect(() => { load(); /* initial */ }, []); // eslint-disable-line
+  // (2) first load after mount
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggleStatus(s: ClientCustomer['status']) {
-    setActiveStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+    setActiveStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   }
 
   return (
@@ -76,28 +79,43 @@ export default function App() {
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && load()}
           style={{
-            flex: 1, padding: '10px 12px',
-            border: '1px solid #dcdcdc', borderRadius: 8
+            flex: 1,
+            padding: '10px 12px',
+            border: '1px solid #dcdcdc',
+            borderRadius: 8,
           }}
         />
-        <button onClick={load} disabled={loading}
-          style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #000' }}>
+        <button
+          onClick={load}
+          disabled={loading}
+          style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #000' }}
+        >
           {loading ? 'Loading…' : 'Search'}
         </button>
         <button
-          onClick={() => { setQ(''); setActiveStatuses([]); load(); }}
-          style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #dcdcdc' }}>
+          onClick={() => {
+            setQ('');
+            setActiveStatuses([]);
+            load();
+          }}
+          style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #dcdcdc' }}
+        >
           Reset
         </button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {STATUS_ORDER.map((s) => (
-          <button key={s} onClick={() => toggleStatus(s)}
+          <button
+            key={s}
+            onClick={() => toggleStatus(s)}
             style={{
-              padding: '6px 10px', borderRadius: 16, border: '1px solid #ddd',
-              background: activeStatuses.includes(s) ? '#e9f5ff' : '#f3f3f3'
-            }}>
+              padding: '6px 10px',
+              borderRadius: 16,
+              border: '1px solid #ddd',
+              background: activeStatuses.includes(s) ? '#e9f5ff' : '#f3f3f3',
+            }}
+          >
             {s[0].toUpperCase() + s.slice(1)}
           </button>
         ))}
@@ -106,16 +124,32 @@ export default function App() {
       {error && <div style={{ color: 'red', marginBottom: 12 }}>{error}</div>}
 
       <div style={{ border: '1px solid #eee', borderRadius: 10 }}>
-        {items.length === 0 && !loading && !error &&
-          <div style={{ padding: 16, color: '#777' }}>No results yet.</div>}
+        {items.length === 0 && !loading && !error && (
+          <div style={{ padding: 16, color: '#777' }}>No results yet.</div>
+        )}
         {items.map((c) => (
           <div key={c.id} style={{ padding: 12, borderTop: '1px solid #f0f0f0' }}>
             <div style={{ fontWeight: 600 }}>{c.name}</div>
-            <div style={{ fontSize: 13, color: '#666' }}>{c.email} {c.company ? `• ${c.company}` : ''}</div>
+            <div style={{ fontSize: 13, color: '#666' }}>
+              {c.email} {c.company ? `• ${c.company}` : ''}
+            </div>
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: '#f5f5f5' }}>{c.status}</span>
+              <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: '#f5f5f5' }}>
+                {c.status}
+              </span>
               {c.tags.map((t) => (
-                <span key={t} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: '#fafafa', border: '1px solid #eee' }}>{t}</span>
+                <span
+                  key={t}
+                  style={{
+                    fontSize: 12,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    background: '#fafafa',
+                    border: '1px solid #eee',
+                  }}
+                >
+                  {t}
+                </span>
               ))}
             </div>
           </div>
