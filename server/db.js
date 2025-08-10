@@ -14,7 +14,7 @@ const pool = new Pool({
 });
 
 export async function ensureTables() {
-  // App settings per shop
+  // Base settings per shop
   await pool.query(`
     CREATE TABLE IF NOT EXISTS wholesale_settings (
       shop TEXT PRIMARY KEY,
@@ -72,7 +72,7 @@ export async function getRules(shop) {
      ORDER BY tag ASC`,
     [shop]
   );
-  return rows.map(r => ({
+  return rows.map((r) => ({
     tag: r.tag,
     discountPercent: Number(r.discount_percent),
   }));
@@ -103,7 +103,9 @@ export async function deleteRule(shop, tag) {
  * Falls back to `defaultDiscount` if no tag matches a rule.
  */
 export async function getDiscountForTags(shop, tags, defaultDiscount) {
-  const norm = (tags || []).map(t => String(t || "").trim().toLowerCase()).filter(Boolean);
+  const norm = (tags || [])
+    .map((t) => String(t || "").trim().toLowerCase())
+    .filter(Boolean);
   if (!norm.length) return defaultDiscount;
 
   const { rows } = await pool.query(
@@ -114,5 +116,5 @@ export async function getDiscountForTags(shop, tags, defaultDiscount) {
   );
 
   const best = rows?.[0]?.best;
-  return (best === null || best === undefined) ? defaultDiscount : Number(best);
+  return best === null || best === undefined ? defaultDiscount : Number(best);
 }
