@@ -1,16 +1,13 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import "@shopify/polaris/build/esm/styles.css";
-import "./app.css";
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { AppProvider } from '@shopify/polaris';
+import en from '@shopify/polaris/locales/en.json';
 
-import App from "./App";
-import { AppProvider } from "@shopify/polaris";
-import en from "@shopify/polaris/locales/en.json";
+import App from './App';
+import './app.css';
+import '@shopify/polaris/build/esm/styles.css';
 
-// API used by App.tsx
-(window as any).CUSTOMER_API = "/api/customers";
-
-ReactDOM.createRoot(document.getElementById("root")!).render(
+ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AppProvider i18n={en}>
       <App />
