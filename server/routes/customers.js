@@ -46,21 +46,19 @@ function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
   });
 }
 
-// Extract shop domain from the JWT (so we can build a reauth URL)
 async function getShopFromAuthHeader(shopify, req) {
   try {
     const hdr = req.headers.authorization || '';
     const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length) : '';
-    if (!token) return null;
+    if (!token) return '';
     const payload = await shopify.utils.decodeSessionToken(token);
-    const dest = (payload.dest || '').toString(); // https://{shop}.myshopify.com
-    return dest.replace(/^https?:\/\//, '');
+    const pick = (payload?.iss || payload?.dest || '').toString();
+    return pick.replace(/^https?:\/\//, '').replace(/\/admin\/?$/, '');
   } catch {
-    return null;
+    return '';
   }
 }
 
-// GET /api/customers
 router.get('/', async (req, res) => {
   try {
     const shopify = req.shopify;
@@ -70,14 +68,12 @@ router.get('/', async (req, res) => {
       rawRequest: req,
       rawResponse: res,
     });
-
     const session = sessionId
       ? await shopify.config.sessionStorage.loadSession(sessionId)
       : null;
 
     if (!session) {
       const shop = (await getShopFromAuthHeader(shopify, req)) || '';
-      // Send reauth headers; point to inline pop-out route. Client will append shop if needed.
       res
         .status(401)
         .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
