@@ -1,10 +1,10 @@
 {
-  "name": "shopify-wholesale-app",
+  "name": "wholesale-management-app",
   "private": true,
-  "workspaces": ["server", "web"],
+  "workspaces": ["web", "server"],
   "scripts": {
     "build": "npm --workspace web run build && npm --workspace server run build",
-    "start": "npm --workspace server start"
+    "start": "npm --workspace server run start"
   },
   "engines": { "node": "20.x" }
 }
