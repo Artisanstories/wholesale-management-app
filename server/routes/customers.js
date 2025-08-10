@@ -1,4 +1,3 @@
-// server/routes/customers.js
 const express = require('express');
 const router = express.Router();
 
@@ -54,7 +53,7 @@ async function getShopFromAuthHeader(shopify, req) {
     const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length) : '';
     if (!token) return null;
     const payload = await shopify.utils.decodeSessionToken(token);
-    const dest = (payload.dest || '').toString(); // e.g. https://{shop}.myshopify.com
+    const dest = (payload.dest || '').toString(); // https://{shop}.myshopify.com
     return dest.replace(/^https?:\/\//, '');
   } catch {
     return null;
@@ -72,20 +71,19 @@ router.get('/', async (req, res) => {
       rawResponse: res,
     });
 
-    let session = null;
-    if (sessionId) {
-      session = await shopify.config.sessionStorage.loadSession(sessionId);
-    }
+    const session = sessionId
+      ? await shopify.config.sessionStorage.loadSession(sessionId)
+      : null;
 
     if (!session) {
-      // No session in memory (e.g., after a deploy). Tell client to reauth via *inline* pop-out route.
       const shop = (await getShopFromAuthHeader(shopify, req)) || '';
+      // Send reauth headers; point to inline pop-out route. Client will append shop if needed.
       res
         .status(401)
         .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
         .set(
           'X-Shopify-API-Request-Failure-Reauthorize-Url',
-          `/api/auth/inline?shop=${encodeURIComponent(shop)}`
+          shop ? `/api/auth/inline?shop=${encodeURIComponent(shop)}` : `/api/auth/inline`
         )
         .json({ error: 'Unauthorized: no active session' });
       return;
