@@ -2,80 +2,80 @@
 const express = require('express');
 const router = express.Router();
 
-function shopFromHostParam(hostParam) {
-  try {
-    const decoded = Buffer.from(String(hostParam || ''), 'base64').toString('utf8');
-    const mStore = decoded.match(/\/store\/([^/?#]+)/i);
-    if (mStore) return `${mStore[1]}.myshopify.com`;
-    const mShop = decoded.match(/([a-z0-9-]+\.myshopify\.com)/i);
-    if (mShop) return mShop[1];
-  } catch {}
-  return '';
-}
-
-function resolveShop(req) {
-  const qShop = String(req.query.shop || '');
-  if (qShop) return qShop;
-  const hdrShop = String(req.headers['x-shopify-shop-domain'] || '');
-  if (hdrShop) return hdrShop;
-  const host = String(req.query.host || '');
-  const fromHost = shopFromHostParam(host);
-  if (fromHost) return fromHost;
-  const ref = String(req.get('referer') || '');
-  const m = ref.match(/shop=([a-z0-9-]+\.myshopify\.com)/i);
-  return m ? m[1] : '';
-}
-
-// Kick off OAuth
+/**
+ * Begin OAuth (embedded + online)
+ * GET /api/auth?shop={shop}.myshopify.com
+ */
 router.get('/', async (req, res) => {
   try {
     const shopify = req.shopify;
-    const shop = resolveShop(req);
+    const shop = (req.query.shop || '').toString().trim();
     if (!shop) return res.status(400).send('Missing shop');
 
-    const redirectUrl = await shopify.auth.begin({
+    const { redirectUrl } = await shopify.auth.begin({
       shop,
-      callbackPath: '/api/auth/callback',
       isOnline: true,
+      callbackPath: '/api/auth/callback',
       rawRequest: req,
-      rawResponse: res, // sets cookies
+      rawResponse: res,
     });
 
-    // If nothing was sent yet, we do the redirect; otherwise, just end.
-    if (!res.headersSent) return res.redirect(redirectUrl);
-    return; // headers already sent by begin()
+    // IMPORTANT: only one response; return after redirect
+    return res.redirect(302, redirectUrl);
   } catch (e) {
-    console.error('OAuth begin error:', e);
-    if (!res.headersSent) return res.status(500).send('Auth begin failed');
+    console.error('auth.begin error', e);
+    return res.status(500).send('Auth begin failed');
   }
 });
 
-// App Bridge reauth helper
-router.get('/inline', (req, res) => {
-  const shop = resolveShop(req);
-  if (!shop) return res.status(400).send('Missing shop');
-  return res.redirect(`/api/auth?shop=${encodeURIComponent(shop)}`);
+/**
+ * Inline OAuth helper (same as above, but we keep a stable path apps can jump to)
+ * GET /api/auth/inline?shop={shop}.myshopify.com
+ */
+router.get('/inline', async (req, res) => {
+  try {
+    const shopify = req.shopify;
+    const shop = (req.query.shop || '').toString().trim();
+    if (!shop) return res.status(400).send('Missing shop');
+
+    const { redirectUrl } = await shopify.auth.begin({
+      shop,
+      isOnline: true,
+      callbackPath: '/api/auth/callback',
+      rawRequest: req,
+      rawResponse: res,
+    });
+
+    return res.redirect(302, redirectUrl);
+  } catch (e) {
+    console.error('auth.inline error', e);
+    return res.status(500).send('Auth inline failed');
+  }
 });
 
-// OAuth callback
+/**
+ * OAuth callback
+ * GET /api/auth/callback
+ */
 router.get('/callback', async (req, res) => {
   try {
     const shopify = req.shopify;
     const { session } = await shopify.auth.callback({
       rawRequest: req,
-      rawResponse: res, // sets cookies
+      rawResponse: res,
     });
 
-    const host = String(req.query.host || '');
-    const to = `/?shop=${encodeURIComponent(session.shop)}${
-      host ? `&host=${encodeURIComponent(host)}` : ''
-    }`;
+    // Redirect back into the app (embedded).
+    // Keep host if Shopify provided it, so App Bridge boots cleanly.
+    const host = (req.query.host || '').toString();
+    const redirectTo = host
+      ? `/?shop=${encodeURIComponent(session.shop)}&host=${encodeURIComponent(host)}`
+      : `/?shop=${encodeURIComponent(session.shop)}`;
 
-    if (!res.headersSent) return res.redirect(to);
-    return; // headers already sent by callback() edge-cases
+    return res.redirect(302, redirectTo);
   } catch (e) {
-    console.error('OAuth callback error:', e);
-    if (!res.headersSent) return res.status(401).send('Auth failed');
+    console.error('auth.callback error', e);
+    return res.status(500).send('Auth callback failed');
   }
 });
 
