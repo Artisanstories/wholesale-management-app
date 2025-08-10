@@ -1,4 +1,13 @@
-import { Card, Page, Text, Button, Box, DataTable, InlineStack, Checkbox } from "@shopify/polaris";
+import {
+  Card,
+  Page,
+  Text,
+  Button,
+  Box,
+  DataTable,
+  InlineStack,
+  Checkbox,
+} from "@shopify/polaris";
 import { useState } from "react";
 
 export default function App() {
@@ -8,6 +17,7 @@ export default function App() {
   const [showVat, setShowVat] = useState(false);
   const [currency, setCurrency] = useState("GBP");
   const [discount, setDiscount] = useState<number | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
 
   async function checkProducts() {
     const res = await fetch("/api/products/count");
@@ -17,7 +27,10 @@ export default function App() {
 
   function fmt(n: number, curr: string) {
     try {
-      return new Intl.NumberFormat(undefined, { style: "currency", currency: curr }).format(n);
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: curr,
+      }).format(n);
     } catch {
       return `${curr} ${n.toFixed(2)}`;
     }
@@ -26,11 +39,14 @@ export default function App() {
   async function loadWholesalePreview() {
     setLoading(true);
     try {
-      const res = await fetch("/api/wholesale/preview?limit=25");
+      const res = await fetch("/api/wholesale/preview?limit=50");
       const data = await res.json();
 
       setCurrency(data.currency || "GBP");
-      setDiscount(typeof data.discountPercent === "number" ? data.discountPercent : null);
+      setDiscount(
+        typeof data.discountPercent === "number" ? data.discountPercent : null
+      );
+      setTotal(Array.isArray(data.items) ? data.items.length : 0);
 
       const table = (data.items || []).map((i: any) => {
         const retail = showVat ? i.retailIncVat : i.retail;
@@ -52,10 +68,9 @@ export default function App() {
     }
   }
 
-  // Recompute display with/without VAT without refetching
   function toggleVat(checked: boolean) {
     setShowVat(checked);
-    // recompute using last payload: reload for simplicity
+    // Re-fetch to recompute with/without VAT
     loadWholesalePreview();
   }
 
@@ -64,11 +79,15 @@ export default function App() {
       <Box padding="400" className="space-y-6">
         <Card roundedAbove="sm">
           <Box padding="400" className="space-y-4">
-            <Text as="h2" variant="headingLg">Welcome 👋</Text>
-            <p className="text-sm">Tailwind + Polaris are working. Try the protected endpoint:</p>
+            <Text as="h2" variant="headingLg">
+              Welcome 👋
+            </Text>
+            <p className="text-sm">
+              Tailwind + Polaris are working. Try the protected endpoint:
+            </p>
             <div className="flex gap-2">
               <Button onClick={checkProducts}>Get product count</Button>
-              <Button tone="success" onClick={() => setCount(c => c + 1)}>
+              <Button tone="success" onClick={() => setCount((c) => c + 1)}>
                 Local state: {count}
               </Button>
             </div>
@@ -78,11 +97,14 @@ export default function App() {
         <Card roundedAbove="sm">
           <Box padding="400" className="space-y-3">
             <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingLg">Wholesale price preview</Text>
+              <Text as="h2" variant="headingLg">
+                Wholesale price preview
+              </Text>
               <InlineStack gap="400" blockAlign="center">
                 {discount !== null && (
                   <Text as="span" variant="bodySm" tone="subdued">
                     Discount: {discount}% • Currency: {currency}
+                    {total !== null ? ` • Rows: ${total}` : ""}
                   </Text>
                 )}
                 <Checkbox
@@ -98,7 +120,12 @@ export default function App() {
 
             <DataTable
               columnContentTypes={["text", "text", "numeric", "numeric"]}
-              headings={["Product", "Variant", `Retail (${currency})`, `Wholesale (${currency})`]}
+              headings={[
+                "Product",
+                "Variant",
+                `Retail (${currency})`,
+                `Wholesale (${currency})`,
+              ]}
               rows={rows}
               stickyHeader
             />
