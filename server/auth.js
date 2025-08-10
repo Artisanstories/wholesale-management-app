@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 
-// --- helpers ---
+// helper: derive shop from base64 host if needed
 function shopFromHostB64(hostB64 = '') {
   try {
     const decoded = Buffer.from(hostB64, 'base64').toString('utf8'); // https://{shop}.myshopify.com/admin
@@ -13,24 +13,7 @@ function shopFromHostB64(hostB64 = '') {
   }
 }
 
-async function shopFromAuthHeader(shopify, req) {
-  try {
-    const hdr = req.headers.authorization || '';
-    const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length) : '';
-    if (!token) return '';
-    const payload = await shopify.utils.decodeSessionToken(token);
-    // iss: https://{shop}.myshopify.com/admin
-    // dest: https://{shop}.myshopify.com (or admin.shopify.com)
-    const iss = payload?.iss || '';
-    const dest = payload?.dest || '';
-    const pick = iss || dest;
-    return pick.replace(/^https?:\/\//, '').replace(/\/admin\/?$/, '');
-  } catch {
-    return '';
-  }
-}
-
-// Start OAuth: GET /api/auth?shop={shop}.myshopify.com
+// Start OAuth top-level
 router.get('/auth', async (req, res) => {
   try {
     const shopify = req.shopify;
@@ -50,15 +33,17 @@ router.get('/auth', async (req, res) => {
   }
 });
 
-// Inline “pop-out”: GET /api/auth/inline?shop=... OR ?host=...
+// ✅ Inline pop-out: now forwards BOTH shop and host to /api/auth
 router.get('/auth/inline', (req, res) => {
   let shop = (req.query.shop || '').toString();
   const host = (req.query.host || '').toString();
   if (!shop && host) shop = shopFromHostB64(host);
-
   if (!shop) return res.status(400).send('Missing shop');
 
-  const to = `/api/auth?shop=${encodeURIComponent(shop)}`;
+  const to =
+    `/api/auth?shop=${encodeURIComponent(shop)}` +
+    (host ? `&host=${encodeURIComponent(host)}` : '');
+
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url='${to}'"></head>
 <body>Redirecting…
@@ -67,8 +52,7 @@ router.get('/auth/inline', (req, res) => {
   res.set('Content-Type', 'text/html').status(200).send(html);
 });
 
-// New: ensure there’s a session, otherwise instruct the client to reauth top-level
-// GET /api/ensure-auth
+// Optional: ensure-auth endpoint (unchanged if you already have it)
 router.get('/ensure-auth', async (req, res) => {
   try {
     const shopify = req.shopify;
@@ -82,18 +66,15 @@ router.get('/ensure-auth', async (req, res) => {
       : null;
 
     if (!session) {
-      const shop = (await shopFromAuthHeader(shopify, req)) || '';
+      // if your authFetch adds host, this will be included automatically
+      const shopParam = req.query.shop ? `?shop=${encodeURIComponent(req.query.shop)}` : '';
       res
         .status(401)
         .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-        .set(
-          'X-Shopify-API-Request-Failure-Reauthorize-Url',
-          shop ? `/api/auth/inline?shop=${encodeURIComponent(shop)}` : `/api/auth/inline`
-        )
+        .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth/inline${shopParam}`)
         .json({ reauth: true });
       return;
     }
-
     res.json({ ok: true });
   } catch (e) {
     console.error('ensure-auth error', e);
@@ -101,7 +82,7 @@ router.get('/ensure-auth', async (req, res) => {
   }
 });
 
-// OAuth callback: GET /api/auth/callback
+// Callback
 router.get('/auth/callback', async (req, res) => {
   try {
     const shopify = req.shopify;
