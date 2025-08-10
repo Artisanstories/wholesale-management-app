@@ -7,6 +7,11 @@ import dotenv from "dotenv";
 import authRouter from "./auth.js";
 import { verifyRequest } from "./verifyRequest.js";
 import { shopify } from "./shopify.js";
+import {
+  ensureTables,
+  getSettingsForShop,
+  saveSettingsForShop,
+} from "./db.js";
 
 dotenv.config();
 
@@ -20,6 +25,11 @@ app.set("trust proxy", 1);
 app.use(cors());
 app.use(cookieParser());
 app.use(express.json());
+
+// Ensure our settings table exists (runs once on boot)
+await ensureTables().catch((e) =>
+  console.error("[DB] ensureTables failed:", e)
+);
 
 // OAuth routes
 app.use("/api", authRouter);
@@ -50,15 +60,71 @@ app.post("/api/graphql", verifyRequest, async (req, res) => {
   }
 });
 
-// Wholesale preview — filters out zero-price variants & gift cards
+/** ---------- SETTINGS ENDPOINTS ---------- **/
+
+// Get current settings for this shop (DB -> fallback to env)
+app.get("/api/settings", verifyRequest, async (req, res) => {
+  try {
+    const { shop } = req.shopifySession;
+
+    const defaults = {
+      discountPercent: parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20"),
+      vatPercent: parseFloat(process.env.VAT_RATE_PERCENT || "20"),
+    };
+
+    const saved = await getSettingsForShop(shop);
+    res.json({
+      discountPercent: saved?.discountPercent ?? defaults.discountPercent,
+      vatPercent: saved?.vatPercent ?? defaults.vatPercent,
+    });
+  } catch (e) {
+    console.error("GET /api/settings error:", e);
+    res.status(500).json({ error: "Failed to load settings" });
+  }
+});
+
+// Save settings for this shop
+app.post("/api/settings", verifyRequest, async (req, res) => {
+  try {
+    const { shop } = req.shopifySession;
+    const { discountPercent, vatPercent } = req.body || {};
+
+    const d = Number(discountPercent);
+    const v = Number(vatPercent);
+
+    if (!Number.isFinite(d) || d < 0 || d > 100) {
+      return res.status(400).json({ error: "discountPercent must be between 0 and 100" });
+    }
+    if (!Number.isFinite(v) || v < 0 || v > 100) {
+      return res.status(400).json({ error: "vatPercent must be between 0 and 100" });
+    }
+
+    await saveSettingsForShop(shop, d, v);
+    res.json({ ok: true, discountPercent: d, vatPercent: v });
+  } catch (e) {
+    console.error("POST /api/settings error:", e);
+    res.status(500).json({ error: "Failed to save settings" });
+  }
+});
+
+/** ---------- WHOLESALE PREVIEW ---------- **/
+
+// Wholesale preview — uses per-shop settings from DB (fallback to env)
 app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
   try {
     const { shop, accessToken } = req.shopifySession;
     const client = new shopify.clients.Rest({ session: { shop, accessToken } });
 
     const limit = Number(req.query.limit || 50);
-    const discountPct = parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20");
-    const vatPct = parseFloat(process.env.VAT_RATE_PERCENT || "20");
+
+    const defaults = {
+      discountPercent: parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20"),
+      vatPercent: parseFloat(process.env.VAT_RATE_PERCENT || "20"),
+    };
+    const saved = await getSettingsForShop(shop);
+    const discountPct = saved?.discountPercent ?? defaults.discountPercent;
+    const vatPct = saved?.vatPercent ?? defaults.vatPercent;
+
     const discount = discountPct / 100;
     const vat = vatPct / 100;
 
@@ -66,8 +132,8 @@ app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
       path: "products",
       query: {
         limit,
-        fields: "id,title,product_type,status,variants"
-      }
+        fields: "id,title,product_type,status,variants",
+      },
     });
 
     const products = result?.body?.products || [];
@@ -85,16 +151,18 @@ app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
         const retailIncVat = +(retail * (1 + vat)).toFixed(2);
         const wholesaleIncVat = +(wholesale * (1 + vat)).toFixed(2);
 
-        return [{
-          productId: p.id,
-          productTitle: p.title,
-          variantId: v.id,
-          variantTitle: v.title,
-          retail,
-          wholesale,
-          retailIncVat,
-          wholesaleIncVat
-        }];
+        return [
+          {
+            productId: p.id,
+            productTitle: p.title,
+            variantId: v.id,
+            variantTitle: v.title,
+            retail,
+            wholesale,
+            retailIncVat,
+            wholesaleIncVat,
+          },
+        ];
       });
     });
 
@@ -103,13 +171,15 @@ app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
       vatPercent: vatPct,
       currency: "GBP",
       count: items.length,
-      items
+      items,
     });
   } catch (e) {
     console.error("wholesale/preview error:", e);
     res.status(500).json({ error: "Failed to load preview" });
   }
 });
+
+/** ---------- STATIC & INSTALL ---------- **/
 
 // Serve client
 const clientDist = path.resolve(__dirname, "../web/dist");
@@ -135,96 +205,3 @@ app.get("/", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
-// CSV export of the wholesale preview
-app.get("/api/wholesale/export.csv", verifyRequest, async (req, res) => {
-  try {
-    const { shop, accessToken } = req.shopifySession;
-    const client = new shopify.clients.Rest({ session: { shop, accessToken } });
-
-    const limit = Number(req.query.limit || 100);
-    const showVat = String(req.query.showVat || "0") === "1";
-    const discountPct = parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20");
-    const vatPct = parseFloat(process.env.VAT_RATE_PERCENT || "20");
-    const discount = discountPct / 100;
-    const vat = vatPct / 100;
-
-    const result = await client.get({
-      path: "products",
-      query: {
-        limit,
-        fields: "id,title,product_type,status,variants"
-      }
-    });
-
-    const products = result?.body?.products || [];
-
-    const items = products.flatMap((p) => {
-      if ((p.product_type || "").toLowerCase().includes("gift")) return [];
-      if (p.status && p.status !== "active") return [];
-
-      return (p.variants || []).flatMap((v) => {
-        const retail = Number.parseFloat(v.price);
-        if (!Number.isFinite(retail) || retail <= 0) return [];
-
-        const wholesale = +(retail * (1 - discount)).toFixed(2);
-        const retailIncVat = +(retail * (1 + vat)).toFixed(2);
-        const wholesaleIncVat = +(wholesale * (1 + vat)).toFixed(2);
-
-        return [{
-          productTitle: p.title,
-          variantTitle: v.title || "",
-          retail,
-          wholesale,
-          retailIncVat,
-          wholesaleIncVat,
-          productId: p.id,
-          variantId: v.id
-        }];
-      });
-    });
-
-    // Build CSV
-    const headers = [
-      "Product",
-      "Variant",
-      "Retail (ex VAT)",
-      "Wholesale (ex VAT)",
-      "Retail (inc VAT)",
-      "Wholesale (inc VAT)",
-      "Product ID",
-      "Variant ID"
-    ];
-
-    const escape = (val) => {
-      const s = String(val ?? "");
-      // wrap in quotes and escape quotes
-      return `"${s.replace(/"/g, '""')}"`;
-    };
-
-    const rows = items.map((i) => [
-      i.productTitle,
-      i.variantTitle || "",
-      i.retail.toFixed(2),
-      i.wholesale.toFixed(2),
-      i.retailIncVat.toFixed(2),
-      i.wholesaleIncVat.toFixed(2),
-      i.productId,
-      i.variantId
-    ].map(escape).join(","));
-
-    const csv = [headers.map(escape).join(","), ...rows].join("\n");
-
-    const date = new Date();
-    const stamp = date.toISOString().slice(0, 10); // YYYY-MM-DD
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="wholesale_preview_${stamp}.csv"`);
-
-    // If the user chose "Show VAT" in the UI, they probably want the inc-VAT columns.
-    // We still include both ex/ inc VAT in the file, so no extra handling needed.
-    res.send(csv);
-  } catch (e) {
-    console.error("wholesale/export.csv error:", e);
-    res.status(500).send("Failed to export CSV");
-  }
-});
-
