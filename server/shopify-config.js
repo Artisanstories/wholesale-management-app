@@ -6,7 +6,7 @@ async function initShopify() {
   await import('@shopify/shopify-api/adapters/node'); // side-effect adapter
   const { shopifyApi, LATEST_API_VERSION } = await import('@shopify/shopify-api');
 
-  // Simple in-memory session storage (no subpath imports)
+  // Simple in-memory session storage to avoid subpath import issues on Render
   const _sessions = new Map();
   const sessionStorage = {
     async storeSession(session) {
@@ -20,14 +20,14 @@ async function initShopify() {
       return _sessions.delete(id);
     },
     async findSessionsByShop(shop) {
-      return Array.from(_sessions.values()).filter((s) => s.shop === shop);
+      return Array.from(_sessions.values()).filter(s => s.shop === shop);
     },
     async deleteSessions(shop) {
       for (const [id, s] of _sessions) {
         if (s.shop === shop) _sessions.delete(id);
       }
       return true;
-    },
+    }
   };
 
   const hostName = (process.env.HOST || '')
@@ -41,7 +41,7 @@ async function initShopify() {
     hostName,
     apiVersion: LATEST_API_VERSION,
     isEmbeddedApp: true,
-    sessionStorage, // <-- custom storage
+    sessionStorage
   });
 
   console.log(`Shopify SDK ready (apiVersion=${shopify.config.apiVersion})`);
