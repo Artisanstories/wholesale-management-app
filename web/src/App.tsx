@@ -1,4 +1,3 @@
-// web/src/App.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { authFetch } from './lib/authFetch';
 import '@shopify/polaris/build/esm/styles.css';
@@ -48,14 +47,9 @@ export default function App() {
     }
   }
 
-  // On mount: ensure OAuth session, then load
   useEffect(() => {
     (async () => {
-      try {
-        await authFetch('/api/ensure-auth', { method: 'GET' });
-      } catch {
-        // If 401, authFetch will redirect to /api/auth/inline. We don’t need to do anything here.
-      }
+      try { await authFetch('/api/ensure-auth', { method: 'GET' }); } catch {}
       await load();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
