@@ -52,41 +52,44 @@ function headerShop(req) {
   return h || '';
 }
 
-async function decodeJwt(shopify, req) {
-  const auth = req.headers.authorization || '';
-  if (!auth.startsWith('Bearer ')) return null;
-  try {
-    const token = auth.slice('Bearer '.length);
-    return await shopify.utils.decodeSessionToken(token);
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Load the **online** session by JWT (no cookies).
- * If missing, tell the client to re-authorize.
+ * Load the **online** session using Shopify v7's helper.
+ * If there's no valid session, respond with 401 + reauth headers and return null.
  */
 async function loadOnlineSession(shopify, req, res) {
-  const payload = await decodeJwt(shopify, req);
-  if (!payload) return null;
+  const sessionId = await shopify.session.getCurrentId({
+    isOnline: true,
+    rawRequest: req,
+    rawResponse: res,
+  });
 
-  const dest = (payload.dest || '').toString().replace(/^https?:\/\//, '');
-  const sessionId = shopify.session.getJwtSessionId(dest, payload.sub);
-  const session = await shopify.config.sessionStorage.loadSession(sessionId);
-
-  if (!session) {
-    const shop = dest || headerShop(req);
+  if (!sessionId) {
+    const shop = (req.query.shop || headerShop(req) || '').toString();
     res
       .status(401)
       .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
       .set(
         'X-Shopify-API-Request-Failure-Reauthorize-Url',
-        `/api/auth/inline?shop=${encodeURIComponent(shop)}`
+        `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
       )
-      .json({ error: 'Reauthorize required' });
+      .json({ error: 'Unauthorized: no session id' });
     return null;
   }
+
+  const session = await shopify.config.sessionStorage.loadSession(sessionId);
+  if (!session) {
+    const shop = (req.query.shop || headerShop(req) || '').toString();
+    res
+      .status(401)
+      .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
+      .set(
+        'X-Shopify-API-Request-Failure-Reauthorize-Url',
+        `/api/auth/inline${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`
+      )
+      .json({ error: 'Unauthorized: session not found' });
+    return null;
+  }
+
   return session;
 }
 
@@ -95,11 +98,13 @@ router.get('/', async (req, res) => {
 
   try {
     const session = await loadOnlineSession(shopify, req, res);
-    if (!session) return; // response already sent with 401 + reauth headers
+    if (!session) return; // 401 already sent
 
     const search = String(req.query.search || '');
-    const statuses = String(req.query.status || '').split(',').map(s => s.trim()).filter(Boolean);
-    const tags = String(req.query.tags || '').toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+    const statuses = String(req.query.status || '')
+      .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const tags = String(req.query.tags || '')
+      .toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
     const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 250);
 
     const admin = new shopify.clients.Rest({ session });
@@ -130,7 +135,10 @@ router.get('/', async (req, res) => {
           return res
             .status(401)
             .set('X-Shopify-API-Request-Failure-Reauthorize', '1')
-            .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth/inline?shop=${encodeURIComponent(shop)}`)
+            .set(
+              'X-Shopify-API-Request-Failure-Reauthorize-Url',
+              `/api/auth/inline?shop=${encodeURIComponent(shop)}`
+            )
             .json({ error: 'Reauthorize required' });
         }
         return res.status(500).json({ error: 'Shopify API error', details: body });
