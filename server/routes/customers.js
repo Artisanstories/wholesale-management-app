@@ -1,4 +1,3 @@
-// server/routes/customers.js
 const express = require('express');
 const router = express.Router();
 
@@ -39,10 +38,7 @@ function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
 
     const clientShape = toClientCustomer(c);
     const matchS = statuses.length === 0 || statuses.includes(clientShape.status);
-    const matchT =
-      tags.length === 0 ||
-      tags.every(t => clientShape.tags.map(x => x.toLowerCase()).includes(t));
-
+    const matchT = tags.length === 0 || tags.every(t => clientShape.tags.map(x => x.toLowerCase()).includes(t));
     return matchQ && matchS && matchT;
   });
 }
@@ -55,9 +51,7 @@ async function getShopFromAuthHeader(shopify, req) {
     const payload = await shopify.utils.decodeSessionToken(token);
     const dest = (payload.dest || '').toString();
     return dest.replace(/^https?:\/\//, '');
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 router.get('/', async (req, res) => {
@@ -69,10 +63,7 @@ router.get('/', async (req, res) => {
       rawRequest: req,
       rawResponse: res,
     });
-
-    const session = sessionId
-      ? await shopify.config.sessionStorage.loadSession(sessionId)
-      : null;
+    const session = sessionId ? await shopify.config.sessionStorage.loadSession(sessionId) : null;
 
     if (!session) {
       const shop = (await getShopFromAuthHeader(shopify, req)) || '';
@@ -107,7 +98,6 @@ router.get('/', async (req, res) => {
           },
         });
       } catch (apiErr) {
-        // If Shopify returns 401 (expired/invalid), trigger reauth
         const status = apiErr?.response?.code || apiErr?.status || 500;
         const body = apiErr?.response?.body || apiErr?.message;
         console.error('Shopify REST customers error:', status, body);
@@ -120,7 +110,6 @@ router.get('/', async (req, res) => {
             .set('X-Shopify-API-Request-Failure-Reauthorize-Url', `/api/auth?shop=${encodeURIComponent(shop)}`)
             .json({ error: 'Reauthorize required' });
         }
-
         return res.status(500).json({ error: 'Shopify API error', details: body });
       }
 
