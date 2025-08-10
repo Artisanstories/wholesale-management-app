@@ -1,19 +1,25 @@
-// server/shopify-config.js (CommonJS, no subpath imports)
 require('dotenv').config();
 
 async function initShopify() {
-  // adapter must be loaded once, via side-effect
+  // Adapter (must run before using the SDK)
   await import('@shopify/shopify-api/adapters/node');
   const { shopifyApi, LATEST_API_VERSION } = await import('@shopify/shopify-api');
 
-  // Simple in-memory session storage (Render free tier friendly)
+  // Simple in-memory session storage (works fine on Render free dynos)
   const _sessions = new Map();
   const sessionStorage = {
-    async storeSession(session) { _sessions.set(session.id, session); return true; },
-    async loadSession(id) { return _sessions.get(id) || null; },
-    async deleteSession(id) { return _sessions.delete(id); },
+    async storeSession(session) {
+      _sessions.set(session.id, session);
+      return true;
+    },
+    async loadSession(id) {
+      return _sessions.get(id);
+    },
+    async deleteSession(id) {
+      return _sessions.delete(id);
+    },
     async findSessionsByShop(shop) {
-      return Array.from(_sessions.values()).filter(s => s.shop === shop);
+      return Array.from(_sessions.values()).filter((s) => s.shop === shop);
     },
     async deleteSessions(shop) {
       for (const [id, s] of _sessions) if (s.shop === shop) _sessions.delete(id);
@@ -28,9 +34,12 @@ async function initShopify() {
   const shopify = shopifyApi({
     apiKey: process.env.SHOPIFY_API_KEY,
     apiSecretKey: process.env.SHOPIFY_API_SECRET,
-    scopes: (process.env.SCOPES || '').split(',').map(s => s.trim()).filter(Boolean),
-    hostName,                       // e.g. "wholesale-management-app.onrender.com"
-    apiVersion: LATEST_API_VERSION, // you can also fix to '2024-07'
+    scopes: (process.env.SCOPES || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    hostName,
+    apiVersion: process.env.SHOPIFY_API_VERSION || LATEST_API_VERSION,
     isEmbeddedApp: true,
     sessionStorage,
   });
