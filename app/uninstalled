@@ -1,0 +1,18 @@
+shopify.webhooks.addHandlers({
+  APP_UNINSTALLED: {
+    deliveryMethod: shopify.webhooks.DeliveryMethod.Http,
+    callbackUrl: "/webhooks/uninstalled",
+    callback: async (topic, shop, body, webhookId, apiVersion) => {
+      const session = await shopify.config.sessionStorage.loadSessionForShop(shop);
+      const admin = new shopify.api.clients.Rest({ session });
+      try {
+        await admin.delete({
+          path: "assets",
+          query: { "asset[key]": "snippets/wholesale-pricing.liquid" }
+        });
+      } catch (err) {
+        console.error("Snippet removal failed", err);
+      }
+    }
+  }
+});
