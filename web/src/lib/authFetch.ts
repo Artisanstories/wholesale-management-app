@@ -8,16 +8,15 @@ function getApp() {
   if (app) return app;
   const params = new URLSearchParams(window.location.search);
   const host = params.get('host') || '';
-  const apiKey = import.meta.env.VITE_SHOPIFY_API_KEY as string; // set in web/.env
+  const apiKey = import.meta.env.VITE_SHOPIFY_API_KEY as string;
   app = createApp({ apiKey, host });
   return app!;
 }
 
 export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
-  const app = getApp();
-  const token = await getSessionToken(app); // JWT
+  const token = await getSessionToken(getApp());
   const headers = new Headers(init.headers || {});
   headers.set('Authorization', `Bearer ${token}`);
-  headers.set('Content-Type', 'application/json');
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   return fetch(input, { ...init, headers, credentials: 'include' });
 }
