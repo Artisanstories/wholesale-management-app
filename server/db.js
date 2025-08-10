@@ -14,6 +14,7 @@ const pool = new Pool({
 });
 
 export async function ensureTables() {
+  // App settings per shop
   await pool.query(`
     CREATE TABLE IF NOT EXISTS wholesale_settings (
       shop TEXT PRIMARY KEY,
@@ -22,7 +23,20 @@ export async function ensureTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // Tag → discount rules per shop
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wholesale_tag_rules (
+      shop TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      discount_percent NUMERIC NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (shop, tag)
+    );
+  `);
 }
+
+/* ---------- Settings (global per shop) ---------- */
 
 export async function getSettingsForShop(shop) {
   const { rows } = await pool.query(
@@ -47,4 +61,58 @@ export async function saveSettingsForShop(shop, discountPercent, vatPercent) {
            updated_at = NOW()`,
     [shop, discountPercent, vatPercent]
   );
+}
+
+/* ---------- Tag Rules ---------- */
+
+export async function getRules(shop) {
+  const { rows } = await pool.query(
+    `SELECT tag, discount_percent
+     FROM wholesale_tag_rules WHERE shop = $1
+     ORDER BY tag ASC`,
+    [shop]
+  );
+  return rows.map(r => ({
+    tag: r.tag,
+    discountPercent: Number(r.discount_percent),
+  }));
+}
+
+export async function upsertRule(shop, tag, discountPercent) {
+  const t = String(tag || "").trim().toLowerCase();
+  await pool.query(
+    `INSERT INTO wholesale_tag_rules (shop, tag, discount_percent, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (shop, tag) DO UPDATE
+       SET discount_percent = EXCLUDED.discount_percent,
+           updated_at = NOW()`,
+    [shop, t, discountPercent]
+  );
+}
+
+export async function deleteRule(shop, tag) {
+  const t = String(tag || "").trim().toLowerCase();
+  await pool.query(
+    `DELETE FROM wholesale_tag_rules WHERE shop = $1 AND tag = $2`,
+    [shop, t]
+  );
+}
+
+/**
+ * Given a list of customer tags, return the BEST (max) discount for this shop.
+ * Falls back to `defaultDiscount` if no tag matches a rule.
+ */
+export async function getDiscountForTags(shop, tags, defaultDiscount) {
+  const norm = (tags || []).map(t => String(t || "").trim().toLowerCase()).filter(Boolean);
+  if (!norm.length) return defaultDiscount;
+
+  const { rows } = await pool.query(
+    `SELECT MAX(discount_percent) AS best
+     FROM wholesale_tag_rules
+     WHERE shop = $1 AND tag = ANY($2::text[])`,
+    [shop, norm]
+  );
+
+  const best = rows?.[0]?.best;
+  return (best === null || best === undefined) ? defaultDiscount : Number(best);
 }
