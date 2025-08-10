@@ -11,6 +11,10 @@ import {
   ensureTables,
   getSettingsForShop,
   saveSettingsForShop,
+  getRules,
+  upsertRule,
+  deleteRule,
+  getDiscountForTags,
 } from "./db.js";
 
 dotenv.config();
@@ -26,7 +30,7 @@ app.use(cors());
 app.use(cookieParser());
 app.use(express.json());
 
-// Ensure our settings table exists (runs once on boot)
+// Ensure DB tables exist on boot
 await ensureTables().catch((e) =>
   console.error("[DB] ensureTables failed:", e)
 );
@@ -34,7 +38,7 @@ await ensureTables().catch((e) =>
 // OAuth routes
 app.use("/api", authRouter);
 
-// Protected REST example
+/* ---------- Simple protected example ---------- */
 app.get("/api/products/count", verifyRequest, async (req, res) => {
   try {
     const { shop, accessToken } = req.shopifySession;
@@ -47,7 +51,7 @@ app.get("/api/products/count", verifyRequest, async (req, res) => {
   }
 });
 
-// Protected GraphQL proxy (optional but handy)
+/* ---------- GraphQL proxy (optional) ---------- */
 app.post("/api/graphql", verifyRequest, async (req, res) => {
   try {
     const { shop, accessToken } = req.shopifySession;
@@ -60,18 +64,16 @@ app.post("/api/graphql", verifyRequest, async (req, res) => {
   }
 });
 
-/** ---------- SETTINGS ENDPOINTS ---------- **/
+/* ---------- SETTINGS (per-shop) ---------- */
 
 // Get current settings for this shop (DB -> fallback to env)
 app.get("/api/settings", verifyRequest, async (req, res) => {
   try {
     const { shop } = req.shopifySession;
-
     const defaults = {
       discountPercent: parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20"),
       vatPercent: parseFloat(process.env.VAT_RATE_PERCENT || "20"),
     };
-
     const saved = await getSettingsForShop(shop);
     res.json({
       discountPercent: saved?.discountPercent ?? defaults.discountPercent,
@@ -83,22 +85,19 @@ app.get("/api/settings", verifyRequest, async (req, res) => {
   }
 });
 
-// Save settings for this shop
+// Save base settings for this shop
 app.post("/api/settings", verifyRequest, async (req, res) => {
   try {
     const { shop } = req.shopifySession;
     const { discountPercent, vatPercent } = req.body || {};
-
     const d = Number(discountPercent);
     const v = Number(vatPercent);
-
     if (!Number.isFinite(d) || d < 0 || d > 100) {
-      return res.status(400).json({ error: "discountPercent must be between 0 and 100" });
+      return res.status(400).json({ error: "discountPercent must be 0-100" });
     }
     if (!Number.isFinite(v) || v < 0 || v > 100) {
-      return res.status(400).json({ error: "vatPercent must be between 0 and 100" });
+      return res.status(400).json({ error: "vatPercent must be 0-100" });
     }
-
     await saveSettingsForShop(shop, d, v);
     res.json({ ok: true, discountPercent: d, vatPercent: v });
   } catch (e) {
@@ -107,25 +106,131 @@ app.post("/api/settings", verifyRequest, async (req, res) => {
   }
 });
 
-/** ---------- WHOLESALE PREVIEW ---------- **/
+/* ---------- TAG RULES (per-shop) ---------- */
 
-// Wholesale preview — uses per-shop settings from DB (fallback to env)
+// List rules
+app.get("/api/rules", verifyRequest, async (req, res) => {
+  try {
+    const { shop } = req.shopifySession;
+    const rules = await getRules(shop);
+    res.json({ rules });
+  } catch (e) {
+    console.error("GET /api/rules error:", e);
+    res.status(500).json({ error: "Failed to load rules" });
+  }
+});
+
+// Add / update a rule
+app.post("/api/rules", verifyRequest, async (req, res) => {
+  try {
+    const { shop } = req.shopifySession;
+    const { tag, discountPercent } = req.body || {};
+    const t = String(tag || "").trim().toLowerCase();
+    const d = Number(discountPercent);
+    if (!t) return res.status(400).json({ error: "tag is required" });
+    if (!Number.isFinite(d) || d < 0 || d > 100) {
+      return res.status(400).json({ error: "discountPercent must be 0-100" });
+    }
+    await upsertRule(shop, t, d);
+    const rules = await getRules(shop);
+    res.json({ ok: true, rules });
+  } catch (e) {
+    console.error("POST /api/rules error:", e);
+    res.status(500).json({ error: "Failed to save rule" });
+  }
+});
+
+// Delete a rule
+app.delete("/api/rules/:tag", verifyRequest, async (req, res) => {
+  try {
+    const { shop } = req.shopifySession;
+    const tag = String(req.params.tag || "").trim().toLowerCase();
+    if (!tag) return res.status(400).json({ error: "tag is required" });
+    await deleteRule(shop, tag);
+    const rules = await getRules(shop);
+    res.json({ ok: true, rules });
+  } catch (e) {
+    console.error("DELETE /api/rules error:", e);
+    res.status(500).json({ error: "Failed to delete rule" });
+  }
+});
+
+/* ---------- CUSTOMER SEARCH ---------- */
+
+app.get("/api/customers/search", verifyRequest, async (req, res) => {
+  try {
+    const { shop, accessToken } = req.shopifySession;
+    const q = String(req.query.q || "").trim();
+    if (!q) return res.json({ customers: [] });
+
+    const client = new shopify.clients.Rest({ session: { shop, accessToken } });
+    const result = await client.get({
+      path: "customers/search",
+      query: { query: q, limit: 10, fields: "id,first_name,last_name,email,tags" },
+    });
+
+    const customers = (result?.body?.customers || []).map((c) => ({
+      id: c.id,
+      email: c.email || "",
+      name: `${c.first_name || ""} ${c.last_name || ""}`.trim(),
+      tags: (c.tags || "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    }));
+
+    res.json({ customers });
+  } catch (e) {
+    console.error("GET /api/customers/search error:", e);
+    res.status(500).json({ error: "Customer search failed" });
+  }
+});
+
+/* ---------- WHOLESALE PREVIEW (with customer filter) ---------- */
+
 app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
   try {
     const { shop, accessToken } = req.shopifySession;
     const client = new shopify.clients.Rest({ session: { shop, accessToken } });
 
     const limit = Number(req.query.limit || 50);
+    const customerId = req.query.customerId ? String(req.query.customerId) : null;
 
+    // Base settings (defaults → DB)
     const defaults = {
       discountPercent: parseFloat(process.env.WHOLESALE_DISCOUNT_PERCENT || "20"),
       vatPercent: parseFloat(process.env.VAT_RATE_PERCENT || "20"),
     };
     const saved = await getSettingsForShop(shop);
-    const discountPct = saved?.discountPercent ?? defaults.discountPercent;
+    const defaultDiscount = saved?.discountPercent ?? defaults.discountPercent;
     const vatPct = saved?.vatPercent ?? defaults.vatPercent;
 
-    const discount = discountPct / 100;
+    // If a customer is provided, fetch tags and compute best discount from rules
+    let effectiveDiscount = defaultDiscount;
+    let customer = null;
+
+    if (customerId) {
+      const customerRes = await client.get({
+        path: `customers/${customerId}`,
+        query: { fields: "id,first_name,last_name,email,tags" },
+      });
+      const c = customerRes?.body?.customer;
+      if (c) {
+        const tags = (c.tags || "")
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+        effectiveDiscount = await getDiscountForTags(shop, tags, defaultDiscount);
+        customer = {
+          id: c.id,
+          email: c.email || "",
+          name: `${c.first_name || ""} ${c.last_name || ""}`.trim(),
+          tags,
+        };
+      }
+    }
+
+    const discount = effectiveDiscount / 100;
     const vat = vatPct / 100;
 
     const result = await client.get({
@@ -139,13 +244,12 @@ app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
     const products = result?.body?.products || [];
 
     const items = products.flatMap((p) => {
-      // Skip gift cards & non-active products
       if ((p.product_type || "").toLowerCase().includes("gift")) return [];
       if (p.status && p.status !== "active") return [];
 
       return (p.variants || []).flatMap((v) => {
         const retail = Number.parseFloat(v.price);
-        if (!Number.isFinite(retail) || retail <= 0) return []; // drop zero/invalid prices
+        if (!Number.isFinite(retail) || retail <= 0) return [];
 
         const wholesale = +(retail * (1 - discount)).toFixed(2);
         const retailIncVat = +(retail * (1 + vat)).toFixed(2);
@@ -167,10 +271,11 @@ app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
     });
 
     res.json({
-      discountPercent: discountPct,
+      discountPercent: effectiveDiscount,
       vatPercent: vatPct,
       currency: "GBP",
       count: items.length,
+      customer,
       items,
     });
   } catch (e) {
@@ -179,9 +284,8 @@ app.get("/api/wholesale/preview", verifyRequest, async (req, res) => {
   }
 });
 
-/** ---------- STATIC & INSTALL ---------- **/
+/* ---------- STATIC & INSTALL ---------- */
 
-// Serve client
 const clientDist = path.resolve(__dirname, "../web/dist");
 app.use("/assets", express.static(path.join(clientDist, "assets")));
 app.get("/app", (req, res) => {
