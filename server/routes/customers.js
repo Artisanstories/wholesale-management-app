@@ -1,10 +1,6 @@
-// server/routes/customers.js
-// Customer Filter API (works with @shopify/shopify-api ^7)
-
 const express = require('express');
 const router = express.Router();
 
-// ---- Tag → status mapping (edit to match your store) ----
 const TAGS = {
   approved: ['wholesale-approved', 'approved', 'wholesale'],
   pending: ['wholesale-pending', 'pending'],
@@ -50,12 +46,10 @@ function filterCustomers(list, { search = '', statuses = [], tags = [] }) {
   });
 }
 
-// GET /api/customers
 router.get('/', async (req, res) => {
   try {
-    const shopify = req.shopify; // injected by server.js
+    const shopify = req.shopify;
 
-    // Resolve current embedded session from Authorization: Bearer <token>
     const sessionId = await shopify.session.getCurrentId({
       isOnline: true,
       rawRequest: req,
