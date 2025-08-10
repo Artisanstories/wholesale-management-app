@@ -3,79 +3,66 @@ const express = require('express');
 const router = express.Router();
 
 /**
- * Begin OAuth (embedded + online)
- * GET /api/auth?shop={shop}.myshopify.com
+ * Start OAuth (top-level redirect handled by Shopify SDK).
  */
 router.get('/', async (req, res) => {
-  try {
-    const shopify = req.shopify;
-    const shop = (req.query.shop || '').toString().trim();
-    if (!shop) return res.status(400).send('Missing shop');
+  const shopify = req.shopify;
+  const shop = (req.query.shop || '').toString();
+  if (!shop) return res.status(400).send('Missing shop');
 
-    const { redirectUrl } = await shopify.auth.begin({
-      shop,
-      isOnline: true,
-      callbackPath: '/api/auth/callback',
-      rawRequest: req,
-      rawResponse: res,
-    });
-
-    // IMPORTANT: only one response; return after redirect
-    return res.redirect(302, redirectUrl);
-  } catch (e) {
-    console.error('auth.begin error', e);
-    return res.status(500).send('Auth begin failed');
-  }
+  await shopify.auth.begin({
+    shop,
+    callbackPath: '/api/auth/callback',
+    isOnline: true,
+    rawRequest: req,
+    rawResponse: res,
+  });
+  // IMPORTANT: Express must not continue after begin() writes headers.
+  return;
 });
 
 /**
- * Inline OAuth helper (same as above, but we keep a stable path apps can jump to)
- * GET /api/auth/inline?shop={shop}.myshopify.com
+ * Inline reauth entry (used by the frontend when it receives 401+reauth headers)
  */
 router.get('/inline', async (req, res) => {
-  try {
-    const shopify = req.shopify;
-    const shop = (req.query.shop || '').toString().trim();
-    if (!shop) return res.status(400).send('Missing shop');
+  const shopify = req.shopify;
+  const shop = (req.query.shop || '').toString();
+  if (!shop) return res.status(400).send('Missing shop');
 
-    const { redirectUrl } = await shopify.auth.begin({
-      shop,
-      isOnline: true,
-      callbackPath: '/api/auth/callback',
-      rawRequest: req,
-      rawResponse: res,
-    });
-
-    return res.redirect(302, redirectUrl);
-  } catch (e) {
-    console.error('auth.inline error', e);
-    return res.status(500).send('Auth inline failed');
-  }
+  await shopify.auth.begin({
+    shop,
+    callbackPath: '/api/auth/callback',
+    isOnline: true,
+    rawRequest: req,
+    rawResponse: res,
+  });
+  return;
 });
 
 /**
- * OAuth callback
- * GET /api/auth/callback
+ * OAuth callback: creates the session then redirects back to the embedded app.
  */
 router.get('/callback', async (req, res) => {
+  const shopify = req.shopify;
   try {
-    const shopify = req.shopify;
     const { session } = await shopify.auth.callback({
       rawRequest: req,
       rawResponse: res,
     });
 
-    // Redirect back into the app (embedded).
-    // Keep host if Shopify provided it, so App Bridge boots cleanly.
+    // (Optional) cleanup of any top-level cookies the SDK used
+    try { await shopify.auth.deleteShopifyCookies(req, res); } catch {}
+
     const host = (req.query.host || '').toString();
+    const shop = session.shop;
     const redirectTo = host
-      ? `/?shop=${encodeURIComponent(session.shop)}&host=${encodeURIComponent(host)}`
-      : `/?shop=${encodeURIComponent(session.shop)}`;
+      ? `/?host=${encodeURIComponent(host)}&shop=${encodeURIComponent(shop)}`
+      : `/?shop=${encodeURIComponent(shop)}`;
 
     return res.redirect(302, redirectTo);
   } catch (e) {
-    console.error('auth.callback error', e);
-    return res.status(500).send('Auth callback failed');
+    console.error('OAuth callback error:', e);
+    return res.status(401).send('Auth failed');
   }
 });
 
