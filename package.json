@@ -6,7 +6,5 @@
     "build": "npm --workspace web run build && npm --workspace server run build",
     "start": "npm --workspace server run start"
   },
-  "engines": {
-    "node": ">=20"
-  }
+  "engines": { "node": ">=20" }
 }
