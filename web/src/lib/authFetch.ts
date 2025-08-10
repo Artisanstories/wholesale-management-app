@@ -1,55 +1,39 @@
-import createApp from '@shopify/app-bridge';
-import { getSessionToken } from '@shopify/app-bridge-utils';
+// web/src/lib/authFetch.ts
+export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  // always include cookies for embedded apps
+  const res = await fetch(input, { credentials: 'include', ...init });
 
-let app: ReturnType<typeof createApp> | null = null;
+  // If Shopify wants us to reauthorize, do a top-level redirect (not inside the iframe)
+  const mustReauth = res.status === 401 &&
+    res.headers.get('X-Shopify-API-Request-Failure-Reauthorize') === '1';
 
-function getApp() {
-  if (app) return app;
-  const params = new URLSearchParams(window.location.search);
-  const host = params.get('host') || '';
-  const apiKey = import.meta.env.VITE_SHOPIFY_API_KEY as string;
-  if (!apiKey) throw new Error('VITE_SHOPIFY_API_KEY is missing');
-  app = createApp({ apiKey, host });
-  return app!;
-}
+  if (mustReauth && typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
 
-function currentShopAndHost() {
-  const u = new URL(window.location.href);
-  const shop = u.searchParams.get('shop') || '';
-  const host = u.searchParams.get('host') || '';
-  return { shop, host };
-}
+    // server may give us a full URL — use it; otherwise fall back to /api/auth/inline
+    const headerUrl = res.headers.get('X-Shopify-API-Request-Failure-Reauthorize-Url') || '/api/auth/inline';
+    const url = new URL(headerUrl, window.location.origin);
 
-let reauthInFlight = false;
-
-async function doFetch(input: RequestInfo | URL, init: RequestInit) {
-  const token = await getSessionToken(getApp());
-  const headers = new Headers(init.headers || {});
-  headers.set('Authorization', `Bearer ${token}`);
-  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  return fetch(input, { ...init, headers, credentials: 'include' });
-}
-
-export async function authFetch(
-  input: RequestInfo | URL,
-  init: RequestInit = {},
-  opts: { retryOn5xx?: boolean } = { retryOn5xx: true }
-) {
-  const res = await doFetch(input, init);
-
-  if (res.status === 401 && res.headers.get('X-Shopify-API-Request-Failure-Reauthorize') === '1') {
-    if (!reauthInFlight) {
-      reauthInFlight = true;
-      const { shop, host } = currentShopAndHost();
-      const to = `/api/auth/inline?${new URLSearchParams({ shop, host }).toString()}`;
-      window.location.href = to;
+    // make sure shop is present
+    const shop = params.get('shop');
+    if (shop && !url.searchParams.get('shop')) {
+      url.searchParams.set('shop', shop);
     }
-    throw new Error('Reauthorizing…');
-  }
 
-  if (opts.retryOn5xx && (res.status === 502 || res.status === 503 || res.status === 504)) {
-    await new Promise(r => setTimeout(r, 1200));
-    return doFetch(input, init);
+    // TOP-LEVEL redirect (fixes “accounts.shopify.com refused to connect”)
+    try {
+      if (window.top && window.top !== window.self) {
+        window.top.location.href = url.toString();
+      } else {
+        window.location.href = url.toString();
+      }
+    } catch {
+      // last-resort fallback
+      window.location.href = url.toString();
+    }
+
+    // stop callers from using this response
+    throw new Error('Reauthorizing…');
   }
 
   return res;
