@@ -33,14 +33,14 @@ export default function App() {
 
       const res = await authFetch(url.toString());
       if (!res.ok) {
-        const msg = `HTTP ${res.status}`;
-        setError(msg);
+        setError(`HTTP ${res.status}`);
         setItems([]);
         return;
       }
       const data: ClientCustomer[] = await res.json();
       setItems(data);
     } catch (e: any) {
+      // If OAuth is required, authFetch will redirect top-level and throw — safe to ignore here.
       setError(e?.message || 'Failed to load');
       setItems([]);
     } finally {
@@ -48,10 +48,24 @@ export default function App() {
     }
   }
 
-  // load once on mount
+  // Ensure OAuth/session on first mount, then load customers
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let mounted = true;
+    (async () => {
+      try {
+        const resp = await authFetch('/api/ensure-auth');
+        if (!mounted) return;
+        if (resp.ok) {
+          await load();
+        }
+        // If not ok, authFetch already redirected to /api/auth/inline and threw.
+      } catch {
+        // Redirect already in progress; no-op.
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   function toggleStatus(s: ClientCustomer['status']) {
@@ -105,9 +119,7 @@ export default function App() {
         ))}
       </div>
 
-      {error && (
-        <div style={{ color: 'red', marginBottom: 12 }}>{error}</div>
-      )}
+      {error && <div style={{ color: 'red', marginBottom: 12 }}>{error}</div>}
 
       <div style={{ border: '1px solid #eee', borderRadius: 10 }}>
         {items.length === 0 && !loading && !error && (
